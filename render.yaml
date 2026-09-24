@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: proxy-usa
+    env: docker
+    plan: free
+    region: oregon # غيرها الى ohio لو تريد شرق امريكا
+    branch: main
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: PROXY_USER
+        value: x5coder
+      - key: PROXY_PASS
+        sync: false # ضعها manually في Dashboard
