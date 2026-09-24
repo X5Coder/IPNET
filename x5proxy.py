@@ -390,6 +390,61 @@ def request_fresh_server(cfg, log=print):
     return False
 
 
+def tunnel_log_path():
+    return os.path.join(app_dir(), "singbox.log")
+
+
+def start_tunnel(exe, client_cfg):
+    """Start sing-box quietly (logs go to a file, terminal stays clean)."""
+    lf = open(tunnel_log_path(), "a", encoding="utf-8")
+    proc = subprocess.Popen([exe, "run", "-c", client_cfg],
+                            stdout=lf, stderr=subprocess.STDOUT,
+                            creationflags=0x08000000 if os.name == "nt" else 0)
+    return proc, lf
+
+
+def stop_tunnel(proc, lf):
+    try:
+        if proc and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                proc.kill()
+    except Exception:
+        pass
+    try:
+        if lf:
+            lf.close()
+    except Exception:
+        pass
+
+
+def open_usa_chrome(chrome):
+    """Open Chrome with a USA identity: English UI+content, no WebRTC leak."""
+    profile = os.path.join(app_dir(), "chrome-usa")
+    os.makedirs(profile, exist_ok=True)
+    # seed Accept-Language once (Chrome stores it in Preferences)
+    prefs = os.path.join(profile, "Preferences")
+    try:
+        if not os.path.exists(prefs):
+            with open(prefs, "w", encoding="utf-8") as f:
+                json.dump({"intl": {"accept_languages": "en-US,en"}}, f)
+    except Exception:
+        pass
+    try:
+        subprocess.Popen([
+            chrome, f"--user-data-dir={profile}",
+            f"--proxy-server=socks5://127.0.0.1:{LOCAL_SOCKS_PORT}",
+            "--lang=en-US",
+            "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+            "https://ipinfo.io/"])
+        print("Chrome opened (USA profile: English, WebRTC leak blocked).",
+              flush=True)
+    except Exception as e:
+        print(f"Could not open Chrome: {e}", flush=True)
+
+
 def run_terminal(cfg):
     """Terminal loop: show proxy address, refresh endpoint, open Chrome.
     Raises RuntimeError if the repo/endpoint is unusable -> GUI reopens."""
@@ -404,6 +459,7 @@ def run_terminal(cfg):
     if code == 404:
         raise RuntimeError("Repo not found (renamed/deleted?). Enter the URL again.")
     proc = None
+    tun_log = None
     current = ""
     dead = 0
     last_heal = 0
@@ -431,7 +487,7 @@ def run_terminal(cfg):
                 current = endpoint
                 host, _, port = endpoint.partition(":")
                 ccfg = {
-                    "log": {"level": "info"},
+                    "log": {"level": "warn"},
                     "inbounds": [{"type": "mixed", "tag": "in",
                                   "listen": "127.0.0.1",
                                   "listen_port": LOCAL_SOCKS_PORT}],
@@ -443,13 +499,8 @@ def run_terminal(cfg):
                 }
                 with open(client_cfg, "w", encoding="utf-8") as f:
                     json.dump(ccfg, f)
-                if proc and proc.poll() is None:
-                    proc.terminate()
-                    try:
-                        proc.wait(timeout=5)
-                    except Exception:
-                        proc.kill()
-                proc = subprocess.Popen([exe, "run", "-c", client_cfg])
+                stop_tunnel(proc, tun_log)
+                proc, tun_log = start_tunnel(exe, client_cfg)
                 print("-" * 60)
                 print(f"PROXY ADDRESS (manual use): 127.0.0.1:{LOCAL_SOCKS_PORT} (SOCKS5 + HTTP)")
                 print(f"SERVER: {endpoint} "
@@ -457,17 +508,11 @@ def run_terminal(cfg):
                 print("IP: USA (Phoenix, Arizona)")
                 print("-" * 60, flush=True)
                 if chrome:
-                    profile = os.path.join(app_dir(), "chrome-usa")
-                    os.makedirs(profile, exist_ok=True)
-                    try:
-                        subprocess.Popen([chrome, f"--user-data-dir={profile}",
-                                          f"--proxy-server=socks5://127.0.0.1:{LOCAL_SOCKS_PORT}",
-                                          "https://ipinfo.io/"])
-                        print("Chrome opened through the USA proxy.", flush=True)
-                    except Exception as e:
-                        print(f"Could not open Chrome: {e}", flush=True)
+                    open_usa_chrome(chrome)
             if proc and proc.poll() not in (None, 0):
-                proc = subprocess.Popen([exe, "run", "-c", client_cfg])
+                stop_tunnel(proc, tun_log)
+                proc, tun_log = start_tunnel(exe, client_cfg)
+                print("Local tunnel restarted.", flush=True)
             # --- client-side healing: is the tunnel actually reachable? ---
             if current and endpoint_reachable(current):
                 if dead:
@@ -475,11 +520,13 @@ def run_terminal(cfg):
                 dead = 0
             elif current:
                 dead += 1
-                print(f"Tunnel unreachable ({dead}/3).", flush=True)
+                print(f"Server tunnel expired ({dead}/3) - getting a new one ...",
+                      flush=True)
                 if dead >= 3 and time.time() - last_heal > 900:
                     last_heal = time.time()
                     dead = 0
-                    print("Requesting a fresh USA server ...", flush=True)
+                    print("Requesting a fresh USA server (takes a few minutes) ...",
+                          flush=True)
                     if request_fresh_server(cfg):
                         # wait until a DIFFERENT endpoint is published
                         for _ in range(48):
@@ -492,11 +539,7 @@ def run_terminal(cfg):
     except KeyboardInterrupt:
         print("\nStopping...")
     finally:
-        try:
-            if proc and proc.poll() is None:
-                proc.terminate()
-        except Exception:
-            pass
+        stop_tunnel(proc, tun_log)
 
 
 def main():

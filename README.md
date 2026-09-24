@@ -24,10 +24,19 @@ Open `X5Proxy.exe`, paste the **repo URL** + **token**, press **Start**. The app
   SERVER: bore.pub:4521 (encrypted)
   IP: USA (Phoenix, Arizona)
   ```
-- Chrome opens automatically through the USA IP. Leave the terminal open.
-- The app refreshes the endpoint by itself (the address changes about every 5 hours).
+- Chrome opens automatically with a USA profile (English, WebRTC leak
+  blocked) through the USA IP. Leave the terminal open.
+- The app refreshes the endpoint by itself (the address changes about every
+  5 hours, and the app requests a fresh server on its own if the tunnel dies).
 - Manual use: point any app to `127.0.0.1:1080` as SOCKS5 (or HTTP) proxy.
 - If the repo is deleted/renamed or anything breaks, the setup window opens again and asks for the repo URL.
+
+## Windows SmartScreen warning
+
+On first launch Windows may say "Unknown publisher" because the EXE is not
+code-signed (a certificate costs money). It is safe: press **More info** →
+**Run anyway**. The source is public in this repo and you can build the EXE
+yourself with `python -m PyInstaller --onefile --console --name X5Proxy x5proxy.py`.
 
 ## Why encrypted?
 
