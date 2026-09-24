@@ -133,21 +133,69 @@ jobs:
 
       - name: Keep alive
         run: |
+          push_urls() {
+            git config user.name "proxy-bot" || true
+            git config user.email "bot@proxy.usa" || true
+            git add bore_url.txt ss_url.txt proxy_urls.txt || true
+            git commit -m "update bore $1 ss $2 (auto-heal)" || true
+            git push || true
+          }
+          restart_http_bore() {
+            echo "RESTARTING http bore tunnel..."
+            kill $(cat /tmp/bore.pid) 2>/dev/null || true
+            sleep 2
+            rm -f /tmp/bore.log
+            /tmp/bore local 8080 --to bore.pub > /tmp/bore.log 2>&1 &
+            echo $! > /tmp/bore.pid
+            sleep 12
+            cat /tmp/bore.log
+          }
+          restart_ss_bore() {
+            echo "RESTARTING ss bore tunnel..."
+            kill $(cat /tmp/bore-ss.pid) 2>/dev/null || true
+            sleep 2
+            rm -f /tmp/bore-ss.log
+            /tmp/bore local 8388 --to bore.pub > /tmp/bore-ss.log 2>&1 &
+            echo $! > /tmp/bore-ss.pid
+            sleep 12
+            cat /tmp/bore-ss.log
+          }
+          fail_http=0; fail_ss=0
           for i in $(seq 1 300); do
             echo "[$i/300] $(date -u) - alive"
-            URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore.log | head -1)
-            SS_URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore-ss.log | head -1)
+            URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore.log 2>/dev/null | head -1)
+            SS_URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore-ss.log 2>/dev/null | head -1)
             echo "HTTP_PROXY bore: $URL | SHADOWSOCKS bore: $SS_URL"
             for svc in "proxy:/tmp/proxy.pid" "ss:/tmp/ss.pid" "bore:/tmp/bore.pid" "bore-ss:/tmp/bore-ss.pid"; do
               name=$(echo $svc | cut -d: -f1); pidf=$(echo $svc | cut -d: -f2)
               if kill -0 $(cat $pidf) 2>/dev/null; then echo "$name pid alive"; else echo "$name DEAD"; fi
             done
             curl -s http://127.0.0.1:8080/health | grep -q "Proxy" && echo "http-proxy health ok" || echo "http-proxy health fail"
-            echo "--- proxy.log tail ---"; tail -8 /tmp/proxy.log || true
-            echo "--- ss.log tail ---"; tail -5 /tmp/ss.log || true
-            if [ $((i % 10)) -eq 0 ]; then
-              echo "--- periodic public test ---"
-              curl -s --max-time 20 -x "http://x5coder:X5_Secure_2026!Strong@$URL" http://httpbin.org/ip || echo "periodic HTTP fail"
+            # --- real public test every minute (loopback through bore servers) ---
+            if curl -s --max-time 15 -x "http://x5coder:X5_Secure_2026!Strong@$URL" http://httpbin.org/ip; then
+              echo "public HTTP ok"; fail_http=0
+            else
+              echo "public HTTP FAIL ($((fail_http+1))/2)"; fail_http=$((fail_http+1))
             fi
+            SS_HOST=$(echo $SS_URL | cut -d: -f1); SS_PORT=$(echo $SS_URL | cut -d: -f2)
+            if timeout 10 bash -c "</dev/tcp/$SS_HOST/$SS_PORT" 2>/dev/null; then
+              echo "public SS tcp ok"; fail_ss=0
+            else
+              echo "public SS tcp FAIL ($((fail_ss+1))/2)"; fail_ss=$((fail_ss+1))
+            fi
+            # --- auto-heal after 2 consecutive failures ---
+            changed=0
+            if [ "$fail_http" -ge 2 ]; then restart_http_bore; fail_http=0; changed=1; fi
+            if [ "$fail_ss" -ge 2 ]; then restart_ss_bore; fail_ss=0; changed=1; fi
+            if [ "$changed" -eq 1 ]; then
+              URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore.log 2>/dev/null | head -1)
+              SS_URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore-ss.log 2>/dev/null | head -1)
+              echo "$URL" > bore_url.txt; echo "$SS_URL" > ss_url.txt
+              { echo "HTTP_PROXY=$URL (user x5coder, http only - CONNECT blocked by EG ISP)";
+                echo "SHADOWSOCKS=$SS_URL (aes-256-gcm, pass X5_Secure_2026!Strong - full https)"; } > proxy_urls.txt
+              push_urls "$URL" "$SS_URL"
+              echo "HEALED: HTTP=$URL SS=$SS_URL"
+            fi
+            echo "--- proxy.log tail ---"; tail -5 /tmp/proxy.log || true
             sleep 60
           done
