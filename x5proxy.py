@@ -410,8 +410,9 @@ def gui_setup(error_msg=""):
 
     root = tk.Tk()
     root.title(f"{APP_NAME} {APP_VERSION} - Setup")
-    root.geometry("540x600")
-    root.resizable(False, False)
+    root.geometry("560x640")
+    root.minsize(500, 540)
+    root.resizable(True, True)
     root.configure(bg=PAPER)
     for p in (resource_path("ipnet.ico"), resource_path("ipnet.png")):
         if p:
@@ -448,7 +449,13 @@ def gui_setup(error_msg=""):
     scroll.pack(side="right", fill="y")
     canvas.pack(side="left", fill="both", expand=True)
     body = tk.Frame(canvas, bg=PAPER)
-    canvas.create_window((0, 0), window=body, anchor="nw", width=560)
+    win_id = canvas.create_window((0, 0), window=body, anchor="nw")
+
+    def _fit_width(_evt=None):
+        canvas.itemconfig(win_id, width=canvas.winfo_width())
+        canvas.configure(scrollregion=canvas.bbox("all"))
+
+    canvas.bind("<Configure>", _fit_width)
 
     def _sync_scroll(_evt=None):
         canvas.configure(scrollregion=canvas.bbox("all"))
@@ -513,7 +520,8 @@ def gui_setup(error_msg=""):
     row.pack(fill="x", pady=3)
     path_var = tk.StringVar(value=get_data_dir())
     tk.Entry(row, textvariable=path_var, bg=FIELD, fg=INK, relief="solid",
-             borderwidth=1, font=("Consolas", 8),
+             borderwidth=1, highlightthickness=1, highlightcolor=INK,
+             highlightbackground=HAIR, font=("Consolas", 8),
              insertbackground=INK).pack(side="left", fill="x", expand=True,
                                         padx=(0, 8))
 
@@ -540,20 +548,21 @@ def gui_setup(error_msg=""):
     pb = ttk.Progressbar(wrap, mode="indeterminate", length=440)
     # hidden until Start is pressed
 
-    # full-width CTA bar: solid #111111, radius 4, hover #333333
+    # oval CTA: solid #111111, hover #333333, press sinks
     pad = tk.Frame(wrap, bg=PAPER)
-    pad.pack(fill="x", pady=6)
-    cv = tk.Canvas(pad, width=440, height=42, bg=PAPER, highlightthickness=0,
+    pad.pack(pady=8)
+    cv = tk.Canvas(pad, width=176, height=44, bg=PAPER, highlightthickness=0,
                    borderwidth=0)
-    cv.pack(fill="x")
+    cv.pack()
 
     def draw_btn(fill):
         cv.delete("all")
-        x0, y0, x1, y1, r = 2, 2, 438, 40, 4
+        x0, y0, x1, y1 = 3, 3, 173, 41
+        r = (y1 - y0) // 2
         cv.create_oval(x0, y0, x0 + 2 * r, y1, fill=fill, outline="")
         cv.create_oval(x1 - 2 * r, y0, x1, y1, fill=fill, outline="")
         cv.create_rectangle(x0 + r, y0, x1 - r, y1, fill=fill, outline="")
-        cv.create_text(220, 21, text="Start", fill="#FFFFFF",
+        cv.create_text(88, 22, text="Start", fill="#FFFFFF",
                        font=("Segoe UI", 11, "bold"))
 
     enabled = {"v": True}
