@@ -33,7 +33,7 @@ import urllib.error
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.0.1"
+APP_VERSION = "v1.0.2"
 CANONICAL_REPO = "X5Coder/proxy-usa"  # templates are downloaded from here
 PROJECT_FILES = [
     "server.py",
@@ -282,6 +282,10 @@ def raw_get(url, timeout=20):
             return r.read().decode("utf-8", "ignore").strip()
     except Exception:
         return ""
+
+
+def tunnel_log_path():
+    return os.path.join(app_dir(), "singbox.log")
 
 
 def parse_repo_url(s):
@@ -840,6 +844,23 @@ def find_chrome():
 
 
 def fetch_endpoint(cfg):
+    # Fresh first: Contents API has no CDN cache (raw.githubusercontent
+    # can serve a stale ss_url.txt for minutes after a heal).
+    token = api_token(cfg)
+    if token:
+        for name in ("ss_url.txt", "bore_url.txt"):
+            try:
+                code, data = api_req(
+                    "GET",
+                    f"{API}/repos/{cfg['owner']}/{cfg['repo']}"
+                    f"/contents/{name}?ref=main", token)
+                if code == 200 and isinstance(data, dict) and data.get("content"):
+                    v = base64.b64decode(data["content"]).decode(
+                        "utf-8", "ignore").strip()
+                    if v and re.match(r"bore\.pub:\d+", v):
+                        return name, v
+            except Exception:
+                pass
     for name in ("ss_url.txt", "bore_url.txt"):
         v = raw_get(f"{RAW}/{cfg['owner']}/{cfg['repo']}/main/{name}")
         if v and re.match(r"bore\.pub:\d+", v):
@@ -960,8 +981,19 @@ def request_fresh_server(cfg, log=print):
     return False
 
 
-def tunnel_log_path():
-    return os.path.join(app_dir(), "singbox.log")
+def wait_for_new_endpoint(cfg, current):
+    """Block until a DIFFERENT endpoint is published (after a heal
+    dispatch). Returns it, or '' on timeout (~12 min)."""
+    for _w in range(48):
+        time.sleep(15)
+        _, fresh = fetch_endpoint(cfg)
+        if fresh and fresh != current:
+            print(f"New endpoint: {fresh}", flush=True)
+            return fresh
+        if (_w + 1) % 4 == 0:
+            print(f"... waiting for new server ({(_w + 1) * 15 // 60} min so far)",
+                  flush=True)
+    return ""
 
 
 def start_tunnel(exe, client_cfg):
@@ -1056,6 +1088,7 @@ def run_terminal(cfg):
     print(f"Repo: {cfg['owner']}/{cfg['repo']}")
     print("Press Ctrl+C to stop.\n", flush=True)
     fails = 0
+    first_run = True
     try:
         while True:
             name, endpoint = fetch_endpoint(cfg)
@@ -1087,6 +1120,19 @@ def run_terminal(cfg):
                     json.dump(ccfg, f)
                 stop_tunnel(proc, tun_log)
                 proc, tun_log = start_tunnel(exe, client_cfg)
+                # startup check: if the published endpoint is already dead,
+                # heal NOW instead of waiting 3 loop cycles (restart fix).
+                if first_run and not proxy_working():
+                    first_run = False
+                    print("Proxy not responding on startup - "
+                          "requesting a fresh server ...", flush=True)
+                    if not api_token(cfg):
+                        raise RuntimeError(
+                            "GitHub session expired. Log in again to heal the server.")
+                    if request_fresh_server(cfg):
+                        if wait_for_new_endpoint(cfg, current):
+                            continue  # reconfigure for the new endpoint
+                first_run = False
                 print("-" * 60)
                 print(f"PROXY ADDRESS (manual use): 127.0.0.1:{LOCAL_SOCKS_PORT} (SOCKS5 + HTTP)")
                 print(f"SERVER: {endpoint} "
@@ -1115,23 +1161,16 @@ def run_terminal(cfg):
                 dead += 1
                 print(f"Proxy not responding ({dead}/3) - getting a new one ...",
                       flush=True)
-                if dead >= 3 and time.time() - last_heal > 900:
+                if dead >= 3 and time.time() - last_heal > 300:
                     last_heal = time.time()
                     dead = 0
+                    if not api_token(cfg):
+                        raise RuntimeError(
+                            "GitHub session expired. Log in again to heal the server.")
                     print("Requesting a fresh USA server (takes a few minutes) ...",
                           flush=True)
                     if request_fresh_server(cfg):
-                        # wait until a DIFFERENT endpoint is published
-                        for _w in range(48):
-                            time.sleep(15)
-                            _, fresh = fetch_endpoint(cfg)
-                            if fresh and fresh != current:
-                                print(f"New endpoint: {fresh}", flush=True)
-                                break
-                            if (_w + 1) % 4 == 0:
-                                print(f"... waiting for new server "
-                                      f"({(_w + 1) * 15 // 60} min so far)",
-                                      flush=True)
+                        wait_for_new_endpoint(cfg, current)
             time.sleep(60)
     except KeyboardInterrupt:
         print("\nStopping...")

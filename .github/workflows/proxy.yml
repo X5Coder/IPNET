@@ -9,6 +9,12 @@ on:
 permissions:
   contents: write
 
+# Only one runner at a time: overlapping runs push different endpoints
+# and the client flaps between a live and a dying tunnel.
+concurrency:
+  group: usa-proxy
+  cancel-in-progress: true
+
 jobs:
   proxy:
     runs-on: ubuntu-latest
@@ -112,13 +118,7 @@ jobs:
           curl -s --max-time 30 -x "http://x5coder:X5_Secure_2026!Strong@$URL" https://httpbin.org/ip || echo "PUBLIC HTTPS (loopback) FAIL - check log"
           echo ""
           echo "=== Testing Shadowsocks through public bore URL ($SS_URL) ==="
-          cat > /tmp/sb-client.json <<EOF
-          {
-            "log": {"level": "info"},
-            "inbounds": [{"type": "socks", "tag": "socks-in", "listen": "127.0.0.1", "listen_port": 1080}],
-            "outbounds": [{"type": "shadowsocks", "tag": "ss-out", "server": "$SS_HOST", "server_port": $SS_PORT, "method": "aes-256-gcm", "password": "X5_Secure_2026!Strong"}]
-          }
-          EOF
+          printf '{"log":{"level":"info"},"inbounds":[{"type":"socks","tag":"socks-in","listen":"127.0.0.1","listen_port":1080}],"outbounds":[{"type":"shadowsocks","tag":"ss-out","server":"%s","server_port":%s,"method":"aes-256-gcm","password":"X5_Secure_2026!Strong"}]}' "$SS_HOST" "$SS_PORT" > /tmp/sb-client.json
           /tmp/sing-box run -c /tmp/sb-client.json > /tmp/sb-client.log 2>&1 &
           sleep 3
           cat /tmp/sb-client.log
@@ -142,6 +142,25 @@ jobs:
             git commit -m "update bore $1 ss $2 (auto-heal)" || true
             git push || true
           }
+          # Monitor client: talks SOCKS to 127.0.0.1:1081, exits through the
+          # PUBLIC bore SS tunnel. A plain TCP check is NOT enough: bore.pub
+          # can accept TCP while the server behind it refuses everything.
+          restart_monitor() {
+            echo "restarting monitor client for $1 ..."
+            pkill -f sb-monitor.json 2>/dev/null || true
+            sleep 1
+            printf '{"log":{"level":"error"},"inbounds":[{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":1081}],"outbounds":[{"type":"shadowsocks","tag":"out","server":"%s","server_port":%s,"method":"aes-256-gcm","password":"X5_Secure_2026!Strong"}]}' "$1" "$2" > /tmp/sb-monitor.json
+            /tmp/sing-box run -c /tmp/sb-monitor.json > /tmp/sb-monitor.log 2>&1 &
+            echo $! > /tmp/sbmon.pid
+            sleep 3
+          }
+          ss_alive() {
+            # real end-to-end traffic through the public tunnel (2 hosts,
+            # avoids false alarms from one flaky test site)
+            curl -s --max-time 15 --socks5-hostname 127.0.0.1:1081 http://httpbin.org/ip >/dev/null 2>&1 && return 0
+            curl -s --max-time 15 --socks5-hostname 127.0.0.1:1081 http://ipinfo.io/ip >/dev/null 2>&1 && return 0
+            return 1
+          }
           restart_http_bore() {
             echo "RESTARTING http bore tunnel..."
             kill $(cat /tmp/bore.pid) 2>/dev/null || true
@@ -162,33 +181,53 @@ jobs:
             sleep 12
             cat /tmp/bore-ss.log
           }
+          restart_ss_server() {
+            echo "RESTARTING local shadowsocks server..."
+            kill $(cat /tmp/ss.pid) 2>/dev/null || true
+            sleep 2
+            /tmp/sing-box run -c singbox-server.json > /tmp/ss.log 2>&1 &
+            echo $! > /tmp/ss.pid
+            sleep 3
+          }
+          # start the monitor against the current public SS endpoint
+          _SS0=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore-ss.log 2>/dev/null | head -1)
+          restart_monitor "$(echo $_SS0 | cut -d: -f1)" "$(echo $_SS0 | cut -d: -f2)"
           fail_http=0; fail_ss=0
           for i in $(seq 1 300); do
             echo "[$i/300] $(date -u) - alive"
             URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore.log 2>/dev/null | head -1)
             SS_URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore-ss.log 2>/dev/null | head -1)
             echo "HTTP_PROXY bore: $URL | SHADOWSOCKS bore: $SS_URL"
-            for svc in "proxy:/tmp/proxy.pid" "ss:/tmp/ss.pid" "bore:/tmp/bore.pid" "bore-ss:/tmp/bore-ss.pid"; do
+            for svc in "proxy:/tmp/proxy.pid" "ss:/tmp/ss.pid" "bore:/tmp/bore.pid" "bore-ss:/tmp/bore-ss.pid" "sbmon:/tmp/sbmon.pid"; do
               name=$(echo $svc | cut -d: -f1); pidf=$(echo $svc | cut -d: -f2)
               if kill -0 $(cat $pidf) 2>/dev/null; then echo "$name pid alive"; else echo "$name DEAD"; fi
             done
             curl -s http://127.0.0.1:8080/health | grep -q "Proxy" && echo "http-proxy health ok" || echo "http-proxy health fail"
-            # --- real public test every minute (loopback through bore servers) ---
+            # --- real public tests every minute ---
             if curl -s --max-time 15 -x "http://x5coder:X5_Secure_2026!Strong@$URL" http://httpbin.org/ip; then
               echo "public HTTP ok"; fail_http=0
             else
               echo "public HTTP FAIL ($((fail_http+1))/2)"; fail_http=$((fail_http+1))
             fi
-            SS_HOST=$(echo $SS_URL | cut -d: -f1); SS_PORT=$(echo $SS_URL | cut -d: -f2)
-            if timeout 10 bash -c "</dev/tcp/$SS_HOST/$SS_PORT" 2>/dev/null; then
-              echo "public SS tcp ok"; fail_ss=0
+            if ss_alive; then
+              echo "public SS end-to-end ok"; fail_ss=0
             else
-              echo "public SS tcp FAIL ($((fail_ss+1))/2)"; fail_ss=$((fail_ss+1))
+              echo "public SS end-to-end FAIL ($((fail_ss+1))/2)"; fail_ss=$((fail_ss+1))
             fi
             # --- auto-heal after 2 consecutive failures ---
             changed=0
             if [ "$fail_http" -ge 2 ]; then restart_http_bore; fail_http=0; changed=1; fi
-            if [ "$fail_ss" -ge 2 ]; then restart_ss_bore; fail_ss=0; changed=1; fi
+            if [ "$fail_ss" -ge 2 ]; then
+              restart_ss_bore
+              SS_URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore-ss.log 2>/dev/null | head -1)
+              restart_monitor "$(echo $SS_URL | cut -d: -f1)" "$(echo $SS_URL | cut -d: -f2)"
+              if ! ss_alive; then
+                echo "tunnel renewed but traffic still dead -> restarting ss server"
+                restart_ss_server
+                sleep 3
+              fi
+              fail_ss=0; changed=1
+            fi
             if [ "$changed" -eq 1 ]; then
               URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore.log 2>/dev/null | head -1)
               SS_URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore-ss.log 2>/dev/null | head -1)
