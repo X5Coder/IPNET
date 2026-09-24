@@ -55,8 +55,7 @@ a{color:#38bdf8}
 <div class="info">
 <b>Host:</b> <code>{host}</code><br>
 <b>Port:</b> <code>443</code> (HTTPS)<br>
-<b>User:</b> <code>{user}</code><br>
-<b>Pass:</b> <code>{pwd}</code><br><br>
+<b>Authentication:</b> <code>configured</code><br><br>
 <b>طريقة الاستخدام:</b><br>
 • Chrome / Edge: Settings → System → Proxy<br>
 • Firefox: Settings → Network Settings → Manual Proxy<br>
@@ -108,42 +107,37 @@ def set_fast(sock):
     except:
         pass
 
+def _pipe(src, dst):
+    """One direction, blocking - robust through high-latency tunnels (bore)."""
+    try:
+        while True:
+            data = src.recv(BUFFER_SIZE)
+            if not data:
+                break
+            dst.sendall(data)
+    except:
+        pass
+    try:
+        dst.shutdown(socket.SHUT_WR)
+    except:
+        pass
+
 def relay(src, dst):
-    """High-speed bidirectional relay - robust for CONNECT/TLS"""
+    """Blocking bidirectional relay via 2 threads - stable for TLS/CONNECT."""
     set_fast(src)
     set_fast(dst)
-    src.setblocking(False)
-    dst.setblocking(False)
-    sockets = [src, dst]
-    idle = 0
-    while True:
-        try:
-            r, _, e = select.select(sockets, [], sockets, 45)
-        except:
-            break
-        if e:
-            break
-        if not r:
-            idle += 1
-            if idle > 6:  # 270s idle
-                break
-            continue
-        idle = 0
-        for s in r:
-            try:
-                data = s.recv(BUFFER_SIZE)
-                if not data:
-                    return
-                target = dst if s is src else src
-                # ensure all sent
-                sent = 0
-                while sent < len(data):
-                    n = target.send(data[sent:])
-                    if n == 0:
-                        return
-                    sent += n
-            except:
-                return
+    # blocking with generous timeout so idle TLS sessions don't die fast
+    try:
+        src.settimeout(120)
+        dst.settimeout(120)
+    except:
+        pass
+    t1 = threading.Thread(target=_pipe, args=(src, dst), daemon=True)
+    t2 = threading.Thread(target=_pipe, args=(dst, src), daemon=True)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
 
 def handle_client(client, addr):
     try:
@@ -199,7 +193,7 @@ def handle_client(client, addr):
         # Direct visits to proxy use: GET / HTTP/1.1
         if method == "GET" and target in ("/", "/health", "/status", "/healthz"):
             host_hdr = headers.get("host", f"localhost:{PORT}")
-            html = HTML_STATUS.replace("{host}", host_hdr).replace("{user}", PROXY_USER).replace("{pwd}", PROXY_PASS)
+            html = HTML_STATUS.replace("{host}", host_hdr)
             client.sendall(html.encode())
             client.close()
             return
@@ -248,9 +242,13 @@ def handle_client(client, addr):
                 client.close()
                 return
             # Send 200 to client - keep tunnel open for TLS
+            try:
+                # forward any pipelined bytes (TLS ClientHello may already be here)
+                if leftover:
+                    remote.sendall(leftover)
+            except:
+                pass
             client.sendall(b"HTTP/1.1 200 Connection Established\r\nProxy-Agent: X5-Proxy-USA/1.0\r\n\r\n")
-            set_fast(remote)
-            set_fast(client)
             # Relay - raw TCP tunnel for HTTPS
             relay(client, remote)
             try:
