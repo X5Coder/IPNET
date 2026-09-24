@@ -109,28 +109,39 @@ def set_fast(sock):
         pass
 
 def relay(src, dst):
-    """High-speed bidirectional relay"""
+    """High-speed bidirectional relay - robust for CONNECT/TLS"""
     set_fast(src)
     set_fast(dst)
     src.setblocking(False)
     dst.setblocking(False)
     sockets = [src, dst]
+    idle = 0
     while True:
         try:
-            r, _, e = select.select(sockets, [], sockets, 60)
+            r, _, e = select.select(sockets, [], sockets, 45)
         except:
             break
         if e:
             break
         if not r:
-            break
+            idle += 1
+            if idle > 6:  # 270s idle
+                break
+            continue
+        idle = 0
         for s in r:
             try:
                 data = s.recv(BUFFER_SIZE)
                 if not data:
                     return
                 target = dst if s is src else src
-                target.sendall(data)
+                # ensure all sent
+                sent = 0
+                while sent < len(data):
+                    n = target.send(data[sent:])
+                    if n == 0:
+                        return
+                    sent += n
             except:
                 return
 
