@@ -236,12 +236,11 @@ def handle_client(client, addr):
                 client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
                 client.close()
                 return
-            # Send 200 to client
-            client.sendall(b"HTTP/1.1 200 Connection Established\r\nProxy-Agent: X5-Proxy-USA/1.0\r\nConnection: close\r\n\r\n")
-            # If we have leftover data (shouldn't for CONNECT), ignore
-            client.setblocking(True)
-            remote.setblocking(True)
-            # Relay
+            # Send 200 to client - keep tunnel open for TLS
+            client.sendall(b"HTTP/1.1 200 Connection Established\r\nProxy-Agent: X5-Proxy-USA/1.0\r\n\r\n")
+            set_fast(remote)
+            set_fast(client)
+            # Relay - raw TCP tunnel for HTTPS
             relay(client, remote)
             try:
                 remote.close()
