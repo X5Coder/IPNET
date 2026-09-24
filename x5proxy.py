@@ -489,7 +489,41 @@ def gui_setup(error_msg=""):
         e.insert(0, text)
         e.config(state="readonly")
         e.pack(fill="x", pady=3)
+        make_copyable(e)
         return e
+
+    def make_copyable(widget):
+        """Guaranteed copy: Ctrl+C / Ctrl+Insert / right-click menu."""
+        def do_copy(_evt=None):
+            try:
+                sel = widget.selection_get()
+            except Exception:
+                try:
+                    sel = widget.get()
+                except Exception:
+                    return "break"
+            try:
+                widget.clipboard_clear()
+                widget.clipboard_append(sel)
+            except Exception:
+                pass
+            return "break"
+
+        widget.bind("<Control-c>", do_copy)
+        widget.bind("<Control-C>", do_copy)
+        widget.bind("<Control-Insert>", do_copy)
+        menu = tk.Menu(widget, tearoff=0)
+        menu.add_command(label="Copy",
+                         command=lambda: (do_copy(), menu.unpost()))
+
+        def popup(evt):
+            try:
+                widget.focus_set()
+                menu.tk_popup(evt.x_root, evt.y_root)
+            finally:
+                menu.grab_release()
+
+        widget.bind("<Button-3>", popup)
 
     tk.Label(wrap, text="USA proxy in one click.", bg=PAPER, fg=MUTED,
              font=("Segoe UI", 11)).pack(anchor="w", pady=(0, 14))
@@ -548,36 +582,15 @@ def gui_setup(error_msg=""):
     pb = ttk.Progressbar(wrap, mode="indeterminate", length=440)
     # hidden until Start is pressed
 
-    # oval CTA: solid #111111, hover #333333, press sinks
-    pad = tk.Frame(wrap, bg=PAPER)
-    pad.pack(pady=8)
-    cv = tk.Canvas(pad, width=176, height=44, bg=PAPER, highlightthickness=0,
-                   borderwidth=0)
-    cv.pack()
-
-    def draw_btn(fill):
-        cv.delete("all")
-        x0, y0, x1, y1 = 3, 3, 173, 41
-        r = (y1 - y0) // 2
-        cv.create_oval(x0, y0, x0 + 2 * r, y1, fill=fill, outline="")
-        cv.create_oval(x1 - 2 * r, y0, x1, y1, fill=fill, outline="")
-        cv.create_rectangle(x0 + r, y0, x1 - r, y1, fill=fill, outline="")
-        cv.create_text(88, 22, text="Start", fill="#FFFFFF",
-                       font=("Segoe UI", 11, "bold"))
-
+    # native CTA (razor sharp): solid #111111, hover #333333
     enabled = {"v": True}
-    draw_btn(CTA)
-    cv.bind("<Enter>", lambda e: enabled["v"] and draw_btn(CTA_HOVER))
-    cv.bind("<Leave>", lambda e: enabled["v"] and draw_btn(CTA))
-
-    def on_press(_evt=None):
-        if enabled["v"]:
-            cv.move("all", 0, 1)
-
-    def on_release(_evt=None):
-        if enabled["v"]:
-            draw_btn(CTA)
-            on_start()
+    btn = tk.Button(wrap, text="Start", bg=CTA, fg="#FFFFFF",
+                    activebackground=CTA_HOVER, activeforeground="#FFFFFF",
+                    disabledforeground="#FFFFFF", relief="flat", borderwidth=0,
+                    highlightthickness=0,
+                    font=("Segoe UI", 11, "bold"), padx=10, pady=8,
+                    cursor="hand2", state="normal", command=lambda: on_start())
+    btn.pack(pady=10, ipadx=40)
 
     def on_start():
         if not enabled["v"]:
@@ -588,13 +601,13 @@ def gui_setup(error_msg=""):
             return
         d = (path_var.get() or "").strip() or get_data_dir()
         enabled["v"] = False
-        draw_btn("#9ca3af")
+        btn.config(state="disabled", bg="#9ca3af")
         try:
             set_data_dir(d)
         except Exception as e:
             status.set(f"Cannot use that folder: {e}")
             enabled["v"] = True
-            draw_btn(CTA)
+            btn.config(state="normal", bg=CTA)
             return
         status.set("Working ... browser login, then full auto setup. Check the terminal window too.")
         pb.pack(fill="x", pady=(0, 4))
@@ -622,10 +635,9 @@ def gui_setup(error_msg=""):
             pb.pack_forget()
             status.set(f"Error: {e}")
             enabled["v"] = True
-            draw_btn(CTA)
+            btn.config(state="normal", bg=CTA)
 
-    cv.bind("<ButtonPress-1>", on_press)
-    cv.bind("<ButtonRelease-1>", on_release)
+    btn.config(command=on_start)
     tk.Frame(wrap, bg=HAIR, height=1).pack(fill="x", pady=(10, 8))
     tk.Label(wrap, text=f"{APP_NAME} {APP_VERSION}", bg=PAPER, fg=MUTED,
              font=("Consolas", 8)).pack(anchor="center")
