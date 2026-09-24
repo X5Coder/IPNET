@@ -380,7 +380,8 @@ def setup_backend(repo_name, log):
     if code not in (201, 204):
         log("Auto-start got HTTP %s. You can start it once manually:" % code)
         log(f"https://github.com/{owner}/{repo}/actions")
-    log("Waiting for the encrypted endpoint (up to ~12 min) ...")
+    log(f"Waiting for the encrypted endpoint on {owner}/{repo} "
+          "(up to ~12 min) ...")
     endpoint = ""
     started = time.time()
     for i in range(48):
@@ -784,6 +785,12 @@ def gui_setup(error_msg=""):
             root.update()
             time.sleep(1)
             root.destroy()
+        except KeyboardInterrupt:
+            pb.stop()
+            pb.pack_forget()
+            status.set("Cancelled - press Start to retry.")
+            enabled["v"] = True
+            btn.set_enabled(True)
         except Exception as e:
             pb.stop()
             pb.pack_forget()
