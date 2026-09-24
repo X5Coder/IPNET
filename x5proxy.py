@@ -16,7 +16,7 @@ the newest IP/endpoint automatically and opens Chrome. If the repo is
 missing or anything breaks, the setup window opens again asking for the
 repo URL.
 
-Windows: config at %APPDATA%/X5Proxy/config.json
+Windows: config at %APPDATA%/IPNET/config.json (chosen at setup).
 Needs on PC: internet + Chrome. No git needed (uses GitHub API).
 """
 import base64
@@ -384,20 +384,21 @@ def setup_backend(repo_name, log):
 
 
 def gui_setup(error_msg=""):
-    """IPNET setup window: white/black calm design, copyable text.
-    Returns cfg or None if closed."""
+    """IPNET setup window. Editorial minimalism: warm white, off-black type,
+    hairline dividers, one solid CTA. Returns cfg or None if closed."""
     import tkinter as tk
     from tkinter import filedialog
     result = {}
 
-    WHITE, INK, MUTED, LINE, ACCENT, ACCENT_D = (
-        "#ffffff", "#111827", "#6b7280", "#e5e7eb", "#0284c7", "#0369a1")
+    PAPER, INK, MUTED, HAIR, FIELD, CTA, CTA_HOVER, ERR_BG, ERR_TX = (
+        "#FBFBFA", "#111111", "#787774", "#EAEAEA", "#FFFFFF",
+        "#111111", "#333333", "#FDEBEC", "#9F2F2D")
 
     root = tk.Tk()
     root.title(f"{APP_NAME} {APP_VERSION} - Setup")
-    root.geometry("600x660")
+    root.geometry("600x680")
     root.resizable(False, False)
-    root.configure(bg=WHITE)
+    root.configure(bg=PAPER)
     for p in (resource_path("ipnet.ico"), resource_path("ipnet.png")):
         if p:
             try:
@@ -411,95 +412,118 @@ def gui_setup(error_msg=""):
             except Exception:
                 continue
 
-    def label(parent, text, size=10, bold=False, fg=INK):
-        w = tk.Label(parent, text=text, bg=WHITE, fg=fg, anchor="w",
-                     justify="left", font=("Segoe UI", size, "bold" if bold else "normal"))
-        w.pack(anchor="w", fill="x")
-        return w
+    wrap = tk.Frame(root, bg=PAPER)
+    wrap.pack(fill="both", expand=True, padx=40, pady=28)
 
-    def copyable(parent, text):
-        """Black-on-white selectable line (click, select, Ctrl+C)."""
-        e = tk.Entry(parent, bg="#f9fafb", fg=INK, relief="solid",
-                     borderwidth=1, highlightthickness=0,
-                     font=("Consolas", 8), insertbackground=INK)
-        e.insert(0, text)
-        e.config(state="readonly")
-        e.pack(fill="x", pady=2)
-        return e
-
-    head = tk.Frame(root, bg=WHITE)
-    head.pack(fill="x", padx=22, pady=(16, 0))
+    # wordmark row: logo + tight-tracked name + version tag
+    top = tk.Frame(wrap, bg=PAPER)
+    top.pack(fill="x", pady=(0, 20))
     try:
-        _logo = tk.PhotoImage(file=resource_path("ipnet.png")).subsample(5, 5)
-        tk.Label(head, image=_logo, bg=WHITE).pack(side="left", padx=(0, 12))
+        _logo = tk.PhotoImage(file=resource_path("ipnet.png")).subsample(6, 6)
+        tk.Label(top, image=_logo, bg=PAPER).pack(side="left", padx=(0, 12))
         root._logo_ref = _logo
     except Exception:
         pass
-    tk.Label(head, text=f"{APP_NAME}  {APP_VERSION}", bg=WHITE, fg=INK,
-             font=("Segoe UI", 17, "bold")).pack(side="left")
-    label(head, "USA proxy in one click", size=9, fg=MUTED)
+    tk.Label(top, text=APP_NAME, bg=PAPER, fg=INK,
+             font=("Segoe UI", 20, "bold")).pack(side="left")
+    ver = tk.Label(top, text=APP_VERSION.upper(), bg="#E1F3FE", fg="#1F6C9F",
+                   font=("Consolas", 8, "bold"), padx=8, pady=2)
+    ver.pack(side="left", padx=(10, 0))
 
-    body = tk.Frame(root, bg=WHITE)
-    body.pack(fill="both", expand=True, padx=22, pady=10)
+    def hairline():
+        tk.Frame(wrap, bg=HAIR, height=1).pack(fill="x", pady=10)
 
-    label(body, "1. Create a free GitHub account (once):", bold=True)
-    copyable(body, "https://github.com/signup")
-    label(body, "2. Name for your proxy repo (or paste a repo URL):", bold=True)
+    def field(text, mono=False):
+        e = tk.Entry(wrap, bg=FIELD, fg=INK, relief="solid", borderwidth=1,
+                     highlightthickness=1, highlightcolor=INK,
+                     highlightbackground=HAIR,
+                     font=("Consolas", 9) if mono else ("Segoe UI", 10),
+                     insertbackground=INK)
+        e.insert(0, text)
+        e.config(state="readonly")
+        e.pack(fill="x", pady=3)
+        return e
+
+    tk.Label(wrap, text="USA proxy in one click.", bg=PAPER, fg=MUTED,
+             font=("Segoe UI", 11)).pack(anchor="w", pady=(0, 14))
+
+    tk.Label(wrap, text="1  —  GitHub account", bg=PAPER, fg=INK,
+             font=("Segoe UI", 10, "bold")).pack(anchor="w")
+    tk.Label(wrap, text="Free, once.", bg=PAPER, fg=MUTED,
+             font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 2))
+    field("https://github.com/signup", mono=True)
+    hairline()
+
+    tk.Label(wrap, text="2  —  Repo name or URL", bg=PAPER, fg=INK,
+             font=("Segoe UI", 10, "bold")).pack(anchor="w")
     repo_var = tk.StringVar(value="my-usa-proxy")
-    tk.Entry(body, textvariable=repo_var, bg="#f9fafb", fg=INK, relief="solid",
-             borderwidth=1, font=("Segoe UI", 10),
-             insertbackground=INK).pack(fill="x", pady=(2, 6))
-    label(body, "3. Choose where IPNET stores its data:", bold=True)
-    path_row = tk.Frame(body, bg=WHITE)
-    path_row.pack(fill="x", pady=(2, 6))
+    tk.Entry(wrap, textvariable=repo_var, bg=FIELD, fg=INK, relief="solid",
+             borderwidth=1, highlightthickness=1, highlightcolor=INK,
+             highlightbackground=HAIR, font=("Segoe UI", 10),
+             insertbackground=INK).pack(fill="x", pady=3)
+    hairline()
+
+    tk.Label(wrap, text="3  —  Storage folder", bg=PAPER, fg=INK,
+             font=("Segoe UI", 10, "bold")).pack(anchor="w")
+    tk.Label(wrap, text="Settings, Chrome profile and helpers live here.",
+             bg=PAPER, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 2))
+    row = tk.Frame(wrap, bg=PAPER)
+    row.pack(fill="x", pady=3)
     path_var = tk.StringVar(value=get_data_dir())
-    tk.Entry(path_row, textvariable=path_var, bg="#f9fafb", fg=INK,
-             relief="solid", borderwidth=1, font=("Consolas", 8),
+    tk.Entry(row, textvariable=path_var, bg=FIELD, fg=INK, relief="solid",
+             borderwidth=1, font=("Consolas", 8),
              insertbackground=INK).pack(side="left", fill="x", expand=True,
                                         padx=(0, 8))
 
     def on_browse():
-        d = filedialog.askdirectory(title="Choose IPNET storage folder",
+        d = filedialog.askdirectory(title="IPNET storage folder",
                                     initialdir=path_var.get())
         if d:
             path_var.set(d)
 
-    tk.Button(path_row, text="Browse...", command=on_browse, bg="#f3f4f6",
-              fg=INK, relief="flat", font=("Segoe UI", 9),
-              padx=14, pady=4).pack(side="right")
+    tk.Button(row, text="Browse", command=on_browse, bg=PAPER, fg=INK,
+              relief="solid", borderwidth=1, font=("Segoe UI", 9),
+              padx=14, pady=3).pack(side="right")
+    hairline()
 
-    label(body, "Files kept there (select + Ctrl+C to copy):", size=9, fg=MUTED)
-    copyable(body, "Settings:  <storage>\\config.json")
-    copyable(body, "Chrome USA profile:  <storage>\\chrome-usa")
-    copyable(body, "Helpers (gh, sing-box):  <storage>\\bin")
-    label(body, "4. Press Start, click Authorize in the browser. The app does the rest automatically.",
-          bold=True)
+    tk.Label(wrap, text="Press Start, click Authorize in the browser. The rest is automatic.",
+             bg=PAPER, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 12))
 
     status = tk.StringVar(value=error_msg)
-    tk.Label(body, textvariable=status, bg=WHITE, fg="#dc2626", wraplength=550,
-             justify="left", font=("Segoe UI", 9)).pack(anchor="w", pady=(6, 0))
+    status_lbl = tk.Label(wrap, textvariable=status, bg=PAPER, fg=ERR_TX,
+                          wraplength=520, justify="left", font=("Segoe UI", 9))
+    status_lbl.pack(anchor="w", pady=(0, 8))
 
-    # rounded Start button drawn on canvas (tkinter has no native rounded buttons)
-    pad = tk.Frame(body, bg=WHITE)
-    pad.pack(pady=12)
-    cv = tk.Canvas(pad, width=220, height=52, bg=WHITE, highlightthickness=0)
+    # solid CTA: #111111, radius 6, hover #333333, press shrinks
+    pad = tk.Frame(wrap, bg=PAPER)
+    pad.pack(pady=4)
+    cv = tk.Canvas(pad, width=200, height=46, bg=PAPER, highlightthickness=0)
     cv.pack()
 
     def draw_btn(fill):
         cv.delete("all")
-        x0, y0, x1, y1, r = 4, 4, 216, 48, 22
+        x0, y0, x1, y1, r = 3, 3, 197, 43, 6
         cv.create_oval(x0, y0, x0 + 2 * r, y1, fill=fill, outline="")
         cv.create_oval(x1 - 2 * r, y0, x1, y1, fill=fill, outline="")
         cv.create_rectangle(x0 + r, y0, x1 - r, y1, fill=fill, outline="")
-        cv.create_text(110, 26, text="Start", fill="white",
-                       font=("Segoe UI", 13, "bold"))
+        cv.create_text(100, 23, text="Start", fill="#FFFFFF",
+                       font=("Segoe UI", 12, "bold"))
 
     enabled = {"v": True}
-    draw_btn(ACCENT)
-    cv.bind("<Enter>", lambda e: enabled["v"] and draw_btn(ACCENT_D))
-    cv.bind("<Leave>", lambda e: enabled["v"] and draw_btn(ACCENT))
+    draw_btn(CTA)
+    cv.bind("<Enter>", lambda e: enabled["v"] and draw_btn(CTA_HOVER))
+    cv.bind("<Leave>", lambda e: enabled["v"] and draw_btn(CTA))
 
-    def on_start(_evt=None):
+    def on_press(_evt=None):
+        if enabled["v"]:
+            cv.move("all", 0, 1)
+
+    def on_release(_evt=None):
+        if enabled["v"]:
+            draw_btn(CTA)
+            on_start()
+
+    def on_start():
         if not enabled["v"]:
             return
         name = (repo_var.get() or "").strip()
@@ -517,9 +541,9 @@ def gui_setup(error_msg=""):
         except Exception as e:
             status.set(f"Cannot use that folder: {e}")
             enabled["v"] = True
-            draw_btn(ACCENT)
+            draw_btn(CTA)
             return
-        status.set("Working ... browser login, then full auto setup.\nCheck the black terminal window too.")
+        status.set("Working ... browser login, then full auto setup. Check the terminal window too.")
         root.update()
         try:
             cfg = setup_backend(name, status.set)
@@ -528,9 +552,10 @@ def gui_setup(error_msg=""):
         except Exception as e:
             status.set(f"Error: {e}")
             enabled["v"] = True
-            draw_btn(ACCENT)
+            draw_btn(CTA)
 
-    cv.bind("<Button-1>", on_start)
+    cv.bind("<ButtonPress-1>", on_press)
+    cv.bind("<ButtonRelease-1>", on_release)
     root.mainloop()
     return result.get("cfg")
 
