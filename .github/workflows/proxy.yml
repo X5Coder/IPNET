@@ -28,8 +28,9 @@ jobs:
 
       - name: Install bore
         run: |
-          curl -sL https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-gnu.tar.gz | tar xz -C /tmp
-          chmod +x /tmp/bore
+          # try binary download, fallback to cargo
+          curl -sL https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-gnu.tar.gz -o /tmp/bore.tar.gz || true
+          if tar tzf /tmp/bore.tar.gz >/dev/null 2>&1; then tar xz -f /tmp/bore.tar.gz -C /tmp && chmod +x /tmp/bore; else echo "tar failed, trying cargo"; cargo install bore-cli --locked && cp ~/.cargo/bin/bore /tmp/bore; fi
           /tmp/bore --version
 
       - name: Start bore tunnel (raw TCP - supports CONNECT)
