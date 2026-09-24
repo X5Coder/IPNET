@@ -410,7 +410,7 @@ def gui_setup(error_msg=""):
 
     root = tk.Tk()
     root.title(f"{APP_NAME} {APP_VERSION} - Setup")
-    root.geometry("600x680")
+    root.geometry("540x600")
     root.resizable(False, False)
     root.configure(bg=PAPER)
     for p in (resource_path("ipnet.ico"), resource_path("ipnet.png")):
@@ -426,6 +426,8 @@ def gui_setup(error_msg=""):
             except Exception:
                 continue
 
+    # thin top rule + compact header (no logo, version lives in footer)
+    tk.Frame(root, bg=INK, height=3).pack(fill="x")
     wrap = tk.Frame(root, bg=PAPER)
     wrap.pack(fill="both", expand=True)
     from tkinter import ttk as _ttk
@@ -461,22 +463,12 @@ def gui_setup(error_msg=""):
                                                root.destroy()))
 
     wrap = tk.Frame(body, bg=PAPER)  # content parent (scrolls)
-    wrap.pack(fill="both", expand=True, padx=40, pady=28)
+    wrap.pack(fill="both", expand=True, padx=28, pady=18)
 
-    # wordmark row: logo + tight-tracked name + version tag
-    top = tk.Frame(wrap, bg=PAPER)
-    top.pack(fill="x", pady=(0, 20))
-    try:
-        _logo = tk.PhotoImage(file=resource_path("ipnet.png")).subsample(6, 6)
-        tk.Label(top, image=_logo, bg=PAPER).pack(side="left", padx=(0, 12))
-        root._logo_ref = _logo
-    except Exception:
-        pass
-    tk.Label(top, text=APP_NAME, bg=PAPER, fg=INK,
-             font=("Segoe UI", 20, "bold")).pack(side="left")
-    ver = tk.Label(top, text=APP_VERSION.upper(), bg="#E1F3FE", fg="#1F6C9F",
-                   font=("Consolas", 8, "bold"), padx=8, pady=2)
-    ver.pack(side="left", padx=(10, 0))
+    tk.Label(wrap, text=APP_NAME, bg=PAPER, fg=INK,
+             font=("Segoe UI", 15, "bold")).pack(anchor="w")
+    tk.Label(wrap, text="USA proxy in one click.", bg=PAPER, fg=MUTED,
+             font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 12))
 
     def hairline():
         tk.Frame(wrap, bg=HAIR, height=1).pack(fill="x", pady=10)
@@ -496,27 +488,27 @@ def gui_setup(error_msg=""):
              font=("Segoe UI", 11)).pack(anchor="w", pady=(0, 14))
 
     tk.Label(wrap, text="1  —  GitHub account", bg=PAPER, fg=INK,
-             font=("Segoe UI", 10, "bold")).pack(anchor="w")
+             font=("Segoe UI", 9, "bold")).pack(anchor="w")
     tk.Label(wrap, text="Free, once.", bg=PAPER, fg=MUTED,
-             font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 2))
+             font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 2))
     field("https://github.com/signup", mono=True)
     hairline()
 
     tk.Label(wrap, text="2  —  Repo name or URL", bg=PAPER, fg=INK,
-             font=("Segoe UI", 10, "bold")).pack(anchor="w")
+             font=("Segoe UI", 9, "bold")).pack(anchor="w")
     tk.Label(wrap, text="Example: my-usa-proxy  or  https://github.com/YOU/my-usa-proxy",
-             bg=PAPER, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 2))
+             bg=PAPER, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 2))
     repo_var = tk.StringVar(value="")
     tk.Entry(wrap, textvariable=repo_var, bg=FIELD, fg=INK, relief="solid",
              borderwidth=1, highlightthickness=1, highlightcolor=INK,
-             highlightbackground=HAIR, font=("Segoe UI", 10),
+             highlightbackground=HAIR, font=("Segoe UI", 9),
              insertbackground=INK).pack(fill="x", pady=3)
     hairline()
 
     tk.Label(wrap, text="3  —  Storage folder", bg=PAPER, fg=INK,
-             font=("Segoe UI", 10, "bold")).pack(anchor="w")
+             font=("Segoe UI", 9, "bold")).pack(anchor="w")
     tk.Label(wrap, text="Leave it, or Browse to choose another folder.",
-             bg=PAPER, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 2))
+             bg=PAPER, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 2))
     row = tk.Frame(wrap, bg=PAPER)
     row.pack(fill="x", pady=3)
     path_var = tk.StringVar(value=get_data_dir())
@@ -545,23 +537,24 @@ def gui_setup(error_msg=""):
     status_lbl.pack(anchor="w", pady=(0, 8))
 
     from tkinter import ttk
-    pb = ttk.Progressbar(wrap, mode="indeterminate", length=520)
+    pb = ttk.Progressbar(wrap, mode="indeterminate", length=440)
     # hidden until Start is pressed
 
-    # solid CTA: #111111, radius 6, hover #333333, press shrinks
+    # full-width CTA bar: solid #111111, radius 4, hover #333333
     pad = tk.Frame(wrap, bg=PAPER)
-    pad.pack(pady=4)
-    cv = tk.Canvas(pad, width=200, height=46, bg=PAPER, highlightthickness=0)
-    cv.pack()
+    pad.pack(fill="x", pady=6)
+    cv = tk.Canvas(pad, width=440, height=42, bg=PAPER, highlightthickness=0,
+                   borderwidth=0)
+    cv.pack(fill="x")
 
     def draw_btn(fill):
         cv.delete("all")
-        x0, y0, x1, y1, r = 3, 3, 197, 43, 6
+        x0, y0, x1, y1, r = 2, 2, 438, 40, 4
         cv.create_oval(x0, y0, x0 + 2 * r, y1, fill=fill, outline="")
         cv.create_oval(x1 - 2 * r, y0, x1, y1, fill=fill, outline="")
         cv.create_rectangle(x0 + r, y0, x1 - r, y1, fill=fill, outline="")
-        cv.create_text(100, 23, text="Start", fill="#FFFFFF",
-                       font=("Segoe UI", 12, "bold"))
+        cv.create_text(220, 21, text="Start", fill="#FFFFFF",
+                       font=("Segoe UI", 11, "bold"))
 
     enabled = {"v": True}
     draw_btn(CTA)
@@ -624,6 +617,9 @@ def gui_setup(error_msg=""):
 
     cv.bind("<ButtonPress-1>", on_press)
     cv.bind("<ButtonRelease-1>", on_release)
+    tk.Frame(wrap, bg=HAIR, height=1).pack(fill="x", pady=(10, 8))
+    tk.Label(wrap, text=f"{APP_NAME} {APP_VERSION}", bg=PAPER, fg=MUTED,
+             font=("Consolas", 8)).pack(anchor="center")
     root.mainloop()
     return result.get("cfg")
 
