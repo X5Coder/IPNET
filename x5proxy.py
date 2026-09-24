@@ -315,9 +315,37 @@ def fetch_endpoint(cfg):
     return "", ""
 
 
+def free_local_port():
+    """Kill a stale tunnel from a previous run so port 1080 is free."""
+    import socket
+    s = socket.socket()
+    try:
+        s.bind(("127.0.0.1", LOCAL_SOCKS_PORT))
+        s.close()
+        return  # free
+    except OSError:
+        pass
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/IM", "sing-box.exe"],
+                           capture_output=True, timeout=10)
+        else:
+            subprocess.run(["pkill", "-f", "sb-client.json"],
+                           capture_output=True, timeout=10)
+    except Exception:
+        pass
+    time.sleep(2)
+
+
 def run_terminal(cfg):
     """Terminal loop: show proxy address, refresh endpoint, open Chrome.
     Raises RuntimeError if the repo/endpoint is unusable -> GUI reopens."""
+    free_local_port()
     exe = ensure_singbox()
     chrome = find_chrome()
     if not chrome:
