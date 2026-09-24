@@ -41,6 +41,7 @@ PROJECT_FILES = [
     ".github/workflows/proxy.yml",
     "ss-client-template.json",
     ".gitignore",
+    "USER_README.md",  # uploaded as README.md (credits + channel button)
 ]
 API = "https://api.github.com"
 RAW = "https://raw.githubusercontent.com"
@@ -347,11 +348,13 @@ def setup_backend(repo_name, log):
     elif code != 200:
         raise RuntimeError("Cannot access the repo. Make it PUBLIC.")
     password = "X5_" + secrets.token_urlsafe(14).replace("-", "S").replace("_", "s") + "!Strong"
-    for path in PROJECT_FILES:
+    for src in PROJECT_FILES:
+        # USER_README.md becomes the repo's README.md (no secrets inside)
+        path = "README.md" if src == "USER_README.md" else src
         log(f"Uploading {path} ...")
-        content = download_template(path)
+        content = download_template(src)
         if not content:
-            raise RuntimeError(f"Cannot download template {path}. Check internet.")
+            raise RuntimeError(f"Cannot download template {src}. Check internet.")
         content = content.replace("X5_Secure_2026!Strong", password)
         code, _ = put_file(owner, repo, token, path, content, f"x5proxy: add {path}")
         if code not in (200, 201):
@@ -494,6 +497,10 @@ def gui_setup(error_msg=""):
                           wraplength=520, justify="left", font=("Segoe UI", 9))
     status_lbl.pack(anchor="w", pady=(0, 8))
 
+    from tkinter import ttk
+    pb = ttk.Progressbar(wrap, mode="indeterminate", length=520)
+    pb.pack(fill="x", pady=(0, 4))
+
     # solid CTA: #111111, radius 6, hover #333333, press shrinks
     pad = tk.Frame(wrap, bg=PAPER)
     pad.pack(pady=4)
@@ -544,6 +551,7 @@ def gui_setup(error_msg=""):
             draw_btn(CTA)
             return
         status.set("Working ... browser login, then full auto setup. Check the terminal window too.")
+        pb.start(12)
 
         def log(msg):
             status.set(msg)
@@ -557,8 +565,13 @@ def gui_setup(error_msg=""):
         try:
             cfg = setup_backend(name, log)
             result["cfg"] = cfg
+            status.set("Ready! Restarting into run mode ...")
+            pb.stop()
+            root.update()
+            time.sleep(1)
             root.destroy()
         except Exception as e:
+            pb.stop()
             status.set(f"Error: {e}")
             enabled["v"] = True
             draw_btn(CTA)
@@ -870,30 +883,62 @@ def run_terminal(cfg):
         stop_tunnel(proc, tun_log)
 
 
+def restart_fresh():
+    """Relaunch a clean copy of this app, then exit (used after setup)."""
+    try:
+        args = [a for a in sys.argv[1:] if a != "--reset"]
+        subprocess.Popen([sys.executable] + args)
+    except Exception as e:
+        print(f"Auto-restart failed ({e}). Please open the app again.",
+              flush=True)
+        return False
+    return True
+
+
 def main():
     if "--reset" in sys.argv:
         try:
             os.remove(config_path())
         except Exception:
             pass
-    while True:
-        cfg = load_config()
-        if not cfg:
-            cfg = gui_setup()
+    try:
+        while True:
+            cfg = load_config()
             if not cfg:
-                return  # user closed the window
-        try:
-            run_terminal(cfg)
-            return
-        except RuntimeError as e:
-            print(f"Problem: {e}", flush=True)
+                cfg = gui_setup()
+                if not cfg:
+                    return  # user closed the window
+                print("Setup complete. Restarting into run mode ...", flush=True)
+                time.sleep(1)
+                if restart_fresh():
+                    return
+                # fall through to run_terminal if relaunch failed
             try:
-                os.remove(config_path())
-            except Exception:
-                pass
-            cfg = gui_setup(str(e))
-            if not cfg:
+                run_terminal(cfg)
                 return
+            except RuntimeError as e:
+                print(f"Problem: {e}", flush=True)
+                try:
+                    os.remove(config_path())
+                except Exception:
+                    pass
+                cfg = gui_setup(str(e))
+                if not cfg:
+                    return
+                print("Setup complete. Restarting into run mode ...", flush=True)
+                time.sleep(1)
+                if restart_fresh():
+                    return
+    except KeyboardInterrupt:
+        print("\nStopping...")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print(f"\nUnexpected error: {e}", flush=True)
+        try:
+            input("Press Enter to close ...")
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

@@ -1,60 +1,45 @@
-# IPNET — USA proxy in one click
+# IPNET v1 — USA proxy in one click
 
-Download **`IPNET.exe`** from [Releases](../../releases) and double-click it. That is all most users need.
+Download **`IPNET.exe`** from [Releases](../../releases) and double-click it.
 
-## How it works (one time, ~5 minutes, no tokens)
+[![YouTube](https://img.shields.io/badge/YouTube-Kareem_X5Coder-red?style=for-the-badge&logo=youtube)](https://www.youtube.com/@Kareem-X5Coder)
 
-1. Create a free GitHub account: https://github.com/signup
-2. Open `IPNET.exe`, type a name for your proxy repo, press **Start**.
-3. A browser tab opens — click **Authorize** on GitHub.
+Developer: **X5Coder**
 
-The app then automatically: creates the public repo, uploads the server
-project (with a fresh random password), starts the GitHub Action (free USA
-server), waits for the encrypted endpoint, starts the local tunnel and opens
-**Chrome through the USA IP**.
+## Setup (once, ~5 min, no tokens)
 
-## Every day use
+1. Create a free GitHub account.
+2. Open IPNET, type a repo name, press **Start**.
+3. Click **Authorize** in the browser.
 
-- Double-click `IPNET.exe`.
-- A terminal window shows the proxy address, for example:
-  ```
-  PROXY ADDRESS (manual use): 127.0.0.1:1080 (SOCKS5 + HTTP)
-  SERVER: bore.pub:4521 (encrypted)
-  IP: USA (Phoenix, Arizona)
-  ```
-- Chrome opens automatically with a USA profile (English, WebRTC leak
-  blocked) through the USA IP. Leave the terminal open.
-- The app refreshes the endpoint by itself (the address changes about every
-  5 hours, and the app requests a fresh server on its own if the tunnel dies).
-- Manual use: point any app to `127.0.0.1:1080` as SOCKS5 (or HTTP) proxy.
-- If the repo is deleted/renamed or the GitHub session expires, the setup window opens again.
-- No tokens to copy: login happens in the browser via the official GitHub CLI.
+Full guide: [SETUP.md](SETUP.md). The app creates the repo, uploads the
+server, starts it, then opens Chrome through the USA IP by itself.
 
-## Windows SmartScreen warning
+## Daily use
 
-On first launch Windows may say "Unknown publisher" because the EXE is not
-code-signed (a certificate costs money). It is safe: press **More info** →
-**Run anyway**. The source is public in this repo and you can build the EXE
-yourself with `python -m PyInstaller --onefile --console --name IPNET x5proxy.py`.
+Double-click IPNET, leave the terminal open. It shows the proxy address
+(`127.0.0.1:1080`), refreshes endpoints and heals itself automatically.
 
-## Why encrypted?
+## How it works
 
-Some ISPs block plain proxy `CONNECT` requests, so HTTPS fails while HTTP works.
-IPNET uses **Shadowsocks (aes-256-gcm)** — all traffic is encrypted, nothing to block.
+GitHub Actions (USA) runs an HTTP proxy + encrypted Shadowsocks server,
+exposed via bore tunnels. Some ISPs block plain `CONNECT`, so all traffic
+goes encrypted — nothing to block.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `x5proxy.py` | The desktop app (built to `IPNET.exe`) |
-| `server.py` | USA forward proxy (HTTP + HTTPS/CONNECT) |
-| `singbox-server.json` | Encrypted Shadowsocks server config |
-| `.github/workflows/proxy.yml` | GitHub Action: runs both, exposes via bore, self-heals |
-| `ipnet.svg` / `ipnet.ico` / `ipnet.png` | App icon (source + Windows + window) |
+| `x5proxy.py` | Desktop app (built to `IPNET.exe`) |
+| `server.py` | Forward proxy (HTTP + HTTPS) |
+| `singbox-server.json` | Shadowsocks server config |
+| `.github/workflows/proxy.yml` | Action: runs both, self-heals |
+| `USER_README.md` | README uploaded to user repos |
+| `ipnet.svg/.ico/.png` | App icon |
 | `ss-client-template.json` | Manual client example |
 
 ## Notes
 
-- The Action runs up to 5 hours, then restarts by schedule. The app follows new endpoints automatically.
-- Your password is generated per repo and stored only in your repo + your PC (`%APPDATA%/X5Proxy/config.json`, shown in the setup window).
-- `bore_url.txt` / `ss_url.txt` / `proxy_urls.txt` are auto-published by the Action — that is how the app finds the current endpoint.
+- SmartScreen "Unknown publisher": **More info → Run anyway** (no paid cert).
+- Password is random per repo; endpoints rotate about every 5 hours.
+- `ss_url.txt` is auto-published — that is how the app finds the server.
