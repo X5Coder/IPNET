@@ -414,18 +414,30 @@ def gui_setup(error_msg=""):
     root.minsize(500, 540)
     root.resizable(True, True)
     root.configure(bg=PAPER)
-    for p in (resource_path("ipnet.ico"), resource_path("ipnet.png")):
-        if p:
-            try:
-                if p.endswith(".ico"):
-                    root.iconbitmap(p)
-                else:
-                    _img = tk.PhotoImage(file=p)
-                    root.iconphoto(True, _img)
-                    root._icon_ref = _img
-                break
-            except Exception:
-                continue
+
+    def _set_window_icon(window):
+        """Crisp icon: .ico for taskbar/titlebar (Windows picks the right
+        size layer), plus a pre-rendered 32px PNG for iconphoto so Tk does
+        not blur a 256px image down at runtime. SVG is never used directly
+        (Tk/Windows cannot render SVG sharply)."""
+        try:
+            p_ico = resource_path("ipnet.ico")
+            if p_ico and os.path.exists(p_ico):
+                window.iconbitmap(p_ico)
+        except Exception:
+            pass
+        for _name in ("ipnet-32.png", "ipnet.png"):
+            _p = resource_path(_name)
+            if _p and os.path.exists(_p):
+                try:
+                    _img = tk.PhotoImage(file=_p)
+                    window.iconphoto(True, _img)
+                    window._icon_ref = _img  # keep alive
+                    break
+                except Exception:
+                    continue
+
+    _set_window_icon(root)
 
     # thin top rule + compact header (no logo, version lives in footer)
     tk.Frame(root, bg=INK, height=3).pack(fill="x")
@@ -472,6 +484,112 @@ def gui_setup(error_msg=""):
     wrap = tk.Frame(body, bg=PAPER)  # content parent (scrolls)
     wrap.pack(fill="both", expand=True, padx=28, pady=18)
 
+    # ---------- design helpers: toast + rounded buttons ----------
+    def show_toast(message="Copied!"):
+        """Small dark pill notification near the window, auto-hides."""
+        try:
+            tip = tk.Toplevel(root)
+            tip.overrideredirect(True)
+            tip.attributes("-topmost", True)
+            tip.configure(bg=PAPER)
+            pill = tk.Label(tip, text=message, bg="#111111", fg="#FFFFFF",
+                            font=("Segoe UI", 9), padx=14, pady=7)
+            pill.pack()
+            root.update_idletasks()
+            x = root.winfo_x() + (root.winfo_width() - tip.winfo_reqwidth()) // 2
+            y = root.winfo_y() + root.winfo_height() - 90
+            tip.geometry(f"+{x}+{y}")
+            tip.after(1400, tip.destroy)
+        except Exception:
+            pass
+
+    def copy_text(text, message="Copied!"):
+        try:
+            root.clipboard_clear()
+            root.clipboard_append(text)
+            root.update()
+        except Exception:
+            pass
+        show_toast(message)
+
+    class RoundedButton(tk.Canvas):
+        """tk.Button can't do rounded corners, so this Canvas-drawn button
+        paints a real rounded rectangle (crisp vector, states included)."""
+
+        def __init__(self, parent, text, command=None, width=220, height=46,
+                     radius=14, bg= PAPER, fg="#FFFFFF",
+                     normal="#111111", hover="#2E2E2E", pressed="#000000",
+                     disabled="#9CA3AF", font=("Segoe UI", 11, "bold"),
+                     border=0, border_color="#EAEAEA"):
+            super().__init__(parent, width=width, height=height, bg=bg,
+                             highlightthickness=0, borderwidth=0, relief="flat")
+            self._cmd = command
+            self._colors = {"normal": normal, "hover": hover,
+                            "pressed": pressed, "disabled": disabled}
+            self._fg = fg
+            self._radius = radius
+            self._bw, self._bh = width, height
+            self._border = border
+            self._border_color = border_color
+            self._state = "normal"
+            self._text = text
+            self._font = font
+            self._bg_parent = bg
+            self.bind("<Enter>", self._on_enter)
+            self.bind("<Leave>", self._on_leave)
+            self.bind("<ButtonPress-1>", self._on_press)
+            self.bind("<ButtonRelease-1>", self._on_release)
+            self.configure(cursor="hand2")
+            self._draw("normal")
+
+        def _round_points(self, x1, y1, x2, y2, r):
+            pts = [x1+r, y1, x2-r, y1, x2, y1, x2, y1+r, x2, y2-r,
+                   x2, y2, x2-r, y2, x1+r, y2, x1, y2, x1, y2-r,
+                   x1, y1+r, x1, y1, x1+r, y1]
+            return pts
+
+        def _draw(self, state):
+            self.delete("all")
+            c = self._colors[state]
+            r = self._radius
+            w, h = self._bw, self._bh
+            # parent-bg backdrop to avoid canvas corners showing
+            self.create_rectangle(0, 0, w, h, fill=self._bg_parent, outline=self._bg_parent)
+            if self._border:
+                self.create_polygon(self._round_points(1, 1, w-1, h-1, r),
+                                    fill=self._border_color, outline="", smooth=True)
+                self.create_polygon(self._round_points(2, 2, w-2, h-2, r-1),
+                                    fill=c, outline="", smooth=True)
+            else:
+                self.create_polygon(self._round_points(1, 1, w-1, h-1, r),
+                                    fill=c, outline="", smooth=True)
+            fill = self._fg if state != "disabled" else "#FFFFFF"
+            self.create_text(w//2, h//2, text=self._text, fill=fill, font=self._font)
+
+        def _on_enter(self, _e=None):
+            if self._state == "normal":
+                self._draw("hover")
+
+        def _on_leave(self, _e=None):
+            if self._state == "normal":
+                self._draw("normal")
+
+        def _on_press(self, _e=None):
+            if self._state == "normal":
+                self._draw("pressed")
+
+        def _on_release(self, _e=None):
+            if self._state != "normal":
+                return
+            self._draw("hover")
+            if callable(self._cmd):
+                self._cmd()
+
+        def set_enabled(self, on):
+            self._state = "normal" if on else "disabled"
+            self._draw("normal" if on else "disabled")
+            self.configure(cursor="hand2" if on else "arrow")
+
     tk.Label(wrap, text=APP_NAME, bg=PAPER, fg=INK,
              font=("Segoe UI", 15, "bold")).pack(anchor="w")
     tk.Label(wrap, text="USA proxy in one click.", bg=PAPER, fg=MUTED,
@@ -493,7 +611,7 @@ def gui_setup(error_msg=""):
         return e
 
     def make_copyable(widget):
-        """Guaranteed copy: Ctrl+C / Ctrl+Insert / right-click menu."""
+        """Guaranteed copy: Ctrl+C / Ctrl+Insert / right-click menu + toast."""
         def do_copy(_evt=None):
             try:
                 sel = widget.selection_get()
@@ -502,11 +620,7 @@ def gui_setup(error_msg=""):
                     sel = widget.get()
                 except Exception:
                     return "break"
-            try:
-                widget.clipboard_clear()
-                widget.clipboard_append(sel)
-            except Exception:
-                pass
+            copy_text(sel, "Copied!")
             return "break"
 
         widget.bind("<Control-c>", do_copy)
@@ -530,9 +644,27 @@ def gui_setup(error_msg=""):
 
     tk.Label(wrap, text="1  —  GitHub account", bg=PAPER, fg=INK,
              font=("Segoe UI", 9, "bold")).pack(anchor="w")
-    tk.Label(wrap, text="Free, once.", bg=PAPER, fg=MUTED,
-             font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 2))
-    field("https://github.com/signup", mono=True)
+    tk.Label(wrap, text="Free, once.  Click the link to copy it.",
+             bg=PAPER, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 2))
+    # clickable link card: single click copies + toast (realistic for tk)
+    LINK_BG, LINK_FG = "#EFF6FF", "#1D4ED8"
+    link_card = tk.Frame(wrap, bg=LINK_BG, highlightthickness=1,
+                         highlightbackground="#BFDBFE")
+    link_card.pack(fill="x", pady=3)
+    link_lbl = tk.Label(link_card, text="https://github.com/signup",
+                        bg=LINK_BG, fg=LINK_FG, cursor="hand2",
+                        font=("Consolas", 9, "underline"))
+    link_lbl.pack(side="left", padx=10, pady=8)
+    hint_lbl = tk.Label(link_card, text="Click to copy",
+                        bg=LINK_BG, fg="#60A5FA", font=("Segoe UI", 8))
+    hint_lbl.pack(side="right", padx=10)
+
+    def _copy_signup(_evt=None):
+        copy_text("https://github.com/signup", "Link copied!")
+
+    for _w in (link_card, link_lbl, hint_lbl):
+        _w.bind("<Button-1>", _copy_signup)
+        _w.configure(cursor="hand2")
     hairline()
 
     tk.Label(wrap, text="2  —  Repo name or URL", bg=PAPER, fg=INK,
@@ -565,9 +697,14 @@ def gui_setup(error_msg=""):
         if d:
             path_var.set(d)
 
-    tk.Button(row, text="Browse", command=on_browse, bg=PAPER, fg=INK,
-              relief="solid", borderwidth=1, font=("Segoe UI", 9),
-              padx=14, pady=3).pack(side="right")
+    browse_btn = RoundedButton(row, text="Browse", command=on_browse,
+                               width=110, height=34, radius=10,
+                               bg=PAPER, fg=INK,
+                               normal="#FFFFFF", hover="#F3F4F6",
+                               pressed="#E5E7EB", disabled="#F3F4F6",
+                               font=("Segoe UI", 9, "bold"),
+                               border=1, border_color="#E0E0E0")
+    browse_btn.pack(side="right")
     hairline()
 
     tk.Label(wrap, text="Press Start, click Authorize in the browser. The rest is automatic.",
@@ -582,15 +719,17 @@ def gui_setup(error_msg=""):
     pb = ttk.Progressbar(wrap, mode="indeterminate", length=440)
     # hidden until Start is pressed
 
-    # native CTA (razor sharp): solid #111111, hover #333333
+    # rounded CTA (Canvas-drawn, states: normal/hover/pressed/disabled)
     enabled = {"v": True}
-    btn = tk.Button(wrap, text="Start", bg=CTA, fg="#FFFFFF",
-                    activebackground=CTA_HOVER, activeforeground="#FFFFFF",
-                    disabledforeground="#FFFFFF", relief="flat", borderwidth=0,
-                    highlightthickness=0,
-                    font=("Segoe UI", 11, "bold"), padx=10, pady=8,
-                    cursor="hand2", state="normal", command=lambda: on_start())
-    btn.pack(pady=10, ipadx=40)
+    btn_holder = tk.Frame(wrap, bg=PAPER)
+    btn_holder.pack(pady=12)
+    btn = RoundedButton(btn_holder, text="Start →", command=lambda: on_start(),
+                        width=240, height=50, radius=16,
+                        bg=PAPER, fg="#FFFFFF",
+                        normal=CTA, hover=CTA_HOVER, pressed="#000000",
+                        disabled="#9CA3AF",
+                        font=("Segoe UI", 12, "bold"))
+    btn.pack()
 
     def on_start():
         if not enabled["v"]:
@@ -601,13 +740,13 @@ def gui_setup(error_msg=""):
             return
         d = (path_var.get() or "").strip() or get_data_dir()
         enabled["v"] = False
-        btn.config(state="disabled", bg="#9ca3af")
+        btn.set_enabled(False)
         try:
             set_data_dir(d)
         except Exception as e:
             status.set(f"Cannot use that folder: {e}")
             enabled["v"] = True
-            btn.config(state="normal", bg=CTA)
+            btn.set_enabled(True)
             return
         status.set("Working ... browser login, then full auto setup. Check the terminal window too.")
         pb.pack(fill="x", pady=(0, 4))
@@ -635,9 +774,8 @@ def gui_setup(error_msg=""):
             pb.pack_forget()
             status.set(f"Error: {e}")
             enabled["v"] = True
-            btn.config(state="normal", bg=CTA)
+            btn.set_enabled(True)
 
-    btn.config(command=on_start)
     tk.Frame(wrap, bg=HAIR, height=1).pack(fill="x", pady=(10, 8))
     tk.Label(wrap, text=f"{APP_NAME} {APP_VERSION}", bg=PAPER, fg=MUTED,
              font=("Consolas", 8)).pack(anchor="center")
