@@ -2,8 +2,8 @@ name: Keep Proxy Alive
 
 on:
   schedule:
-    # كل 14 دقيقة - قبل ما Render ينيمه (15 دقيقة)
-    - cron: '*/14 * * * *'
+    # كل 4 دقائق لـ Glitch (ينام بعد 5) و 14 دقيقة لـ Render
+    - cron: '*/4 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -13,19 +13,16 @@ jobs:
     steps:
       - name: Ping proxy health (light)
         run: |
-          echo "Pinging proxy..."
-          # محاولة 3 مرات
-          for i in 1 2 3; do
-            CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 25 https://proxy-usa.onrender.com/health || echo "000")
-            echo "Attempt $i: HTTP $CODE"
-            if [ "$CODE" = "200" ]; then
-              echo "✅ Proxy alive"
-              exit 0
-            fi
-            sleep 5
+          echo "Pinging proxies..."
+          for URL in "https://proxy-usa.onrender.com/health" "https://proxy-usa.glitch.me/health"; do
+            echo "-> $URL"
+            for i in 1 2 3; do
+              CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 25 "$URL" || echo "000")
+              echo "  Attempt $i: HTTP $CODE"
+              if [ "$CODE" = "200" ]; then echo "  ✅ alive"; break; fi
+              sleep 5
+            done
           done
-          echo "⚠️ Ping failed after 3 attempts - Render may be waking up"
-          # لا نفشل الـ Action حتى لو Render نايم (هيصحى لوحده)
           exit 0
 
       - name: Optional proxy auth test (if secrets set)

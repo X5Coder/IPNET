@@ -1,0 +1,14 @@
+{
+  "name": "proxy-usa",
+  "version": "1.5.0",
+  "description": "Private USA Proxy - Virginia East (AWS us-east-1)",
+  "main": "server.py",
+  "scripts": {
+    "start": "python3 server.py"
+  },
+  "engines": {
+    "node": "18.x",
+    "python": "3.11.x"
+  },
+  "keywords": ["proxy", "usa", "glitch"]
+}
