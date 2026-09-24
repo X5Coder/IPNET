@@ -33,7 +33,7 @@ import urllib.error
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.0.2"
+APP_VERSION = "v1.0.1"
 CANONICAL_REPO = "X5Coder/proxy-usa"  # templates are downloaded from here
 PROJECT_FILES = [
     "server.py",
