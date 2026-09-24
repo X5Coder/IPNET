@@ -2,18 +2,16 @@
 
 Download **`X5Proxy.exe`** from [Releases](../../releases) and double-click it. That is all most users need.
 
-## How it works (3 steps, one time)
+## How it works (one time, ~5 minutes, no tokens)
 
 1. Create a free GitHub account: https://github.com/signup
-2. Create a **new PUBLIC empty repository**: https://github.com/new (Public, no README)
-3. Create a token: https://github.com/settings/tokens/new — scopes **[repo]** + **[workflow]** — copy it
+2. Open `X5Proxy.exe`, type a name for your proxy repo, press **Start**.
+3. A browser tab opens — click **Authorize** on GitHub.
 
-Open `X5Proxy.exe`, paste the **repo URL** + **token**, press **Start**. The app then automatically:
-
-- uploads the server project to your repo (with a fresh random password),
-- starts the GitHub Action (free USA server),
-- waits for the encrypted endpoint,
-- starts the local tunnel and opens **Chrome through the USA IP**.
+The app then automatically: creates the public repo, uploads the server
+project (with a fresh random password), starts the GitHub Action (free USA
+server), waits for the encrypted endpoint, starts the local tunnel and opens
+**Chrome through the USA IP**.
 
 ## Every day use
 
@@ -29,7 +27,8 @@ Open `X5Proxy.exe`, paste the **repo URL** + **token**, press **Start**. The app
 - The app refreshes the endpoint by itself (the address changes about every
   5 hours, and the app requests a fresh server on its own if the tunnel dies).
 - Manual use: point any app to `127.0.0.1:1080` as SOCKS5 (or HTTP) proxy.
-- If the repo is deleted/renamed or anything breaks, the setup window opens again and asks for the repo URL.
+- If the repo is deleted/renamed or the GitHub session expires, the setup window opens again.
+- No tokens to copy: login happens in the browser via the official GitHub CLI.
 
 ## Windows SmartScreen warning
 

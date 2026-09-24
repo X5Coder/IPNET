@@ -44,7 +44,9 @@ PROJECT_FILES = [
 API = "https://api.github.com"
 RAW = "https://raw.githubusercontent.com"
 SB_VERSION = "1.14.2"
+GH_VERSION = "2.101.0"
 SS_METHOD = "aes-256-gcm"
+DEFAULT_SS_PASSWORD = "X5_Secure_2026!Strong"
 LOCAL_SOCKS_PORT = 1080
 
 
@@ -76,6 +78,97 @@ def load_config():
 def save_config(cfg):
     with open(config_path(), "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
+
+
+def gh_bin():
+    d = os.path.join(app_dir(), "bin")
+    os.makedirs(d, exist_ok=True)
+    if os.name == "nt":
+        return os.path.join(d, "gh.exe")
+    return os.path.join(d, "gh")
+
+
+def ensure_gh(log=print):
+    """Download GitHub CLI once. Returns path to gh binary."""
+    exe = gh_bin()
+    if os.path.exists(exe):
+        return exe
+    log("Downloading GitHub login helper (one time) ...")
+    if os.name == "nt":
+        asset = f"gh_{GH_VERSION}_windows_amd64.zip"
+    else:
+        asset = f"gh_{GH_VERSION}_linux_amd64.tar.gz"
+    url = f"https://github.com/cli/cli/releases/download/v{GH_VERSION}/{asset}"
+    tmp = os.path.join(os.path.dirname(exe), asset)
+    urllib.request.urlretrieve(url, tmp)
+    if tmp.endswith(".zip"):
+        with zipfile.ZipFile(tmp, "r") as z:
+            z.extractall(os.path.dirname(exe))
+        for root, _, files in os.walk(os.path.dirname(exe)):
+            if "gh.exe" in files:
+                shutil.copy(os.path.join(root, "gh.exe"), exe)
+                break
+    else:
+        import tarfile
+        with tarfile.open(tmp, "r:gz") as t:
+            t.extractall(os.path.dirname(exe))
+        for root, _, files in os.walk(os.path.dirname(exe)):
+            if "gh" in files and not root.endswith(".git"):
+                shutil.copy(os.path.join(root, "gh"), exe)
+                break
+    try:
+        os.remove(tmp)
+    except Exception:
+        pass
+    if os.name != "nt":
+        os.chmod(exe, 0o755)
+    return exe
+
+
+def gh_run(*args, timeout=30):
+    try:
+        p = subprocess.run([gh_bin()] + list(args), capture_output=True,
+                           text=True, timeout=timeout)
+        return p.returncode, (p.stdout or "").strip()
+    except Exception as e:
+        return 99, str(e)
+
+
+def gh_logged_in():
+    code, _ = gh_run("auth", "status")
+    return code == 0
+
+
+def gh_login_flow():
+    """Browser login: user only clicks in GitHub, no token to copy."""
+    print("Opening GitHub login in your browser ...", flush=True)
+    print("Click Authorize, then return here.", flush=True)
+    rc = subprocess.call([gh_bin(), "auth", "login", "--web",
+                          "--skip-ssh-key"])
+    if rc != 0 or not gh_logged_in():
+        raise RuntimeError("GitHub login did not complete. Try again.")
+    print("GitHub login OK.", flush=True)
+
+
+def gh_token():
+    code, out = gh_run("auth", "token")
+    if code == 0 and out:
+        return out.splitlines()[0].strip()
+    return ""
+
+
+def gh_username(token):
+    code, data = api_req("GET", f"{API}/user", token)
+    if code == 200 and data.get("login"):
+        return data["login"]
+    return ""
+
+
+def api_token(cfg):
+    """Auth for API calls: saved token, else live gh login token."""
+    if cfg.get("token"):
+        return cfg["token"]
+    return gh_token()
 
 
 def api_req(method, url, token, payload=None):
@@ -141,13 +234,31 @@ def put_file(owner, repo, token, path, content, msg):
     return api_req("PUT", url, token, payload)
 
 
-def setup_backend(owner, repo, token, log):
-    """Upload project, dispatch workflow, wait for endpoint. Returns cfg."""
+def setup_backend(repo_name, log):
+    """Browser login -> create/reuse repo -> upload -> start -> wait. Returns cfg."""
+    ensure_gh(log)
+    if not gh_logged_in():
+        log("A browser window will open: click Authorize on GitHub.")
+        gh_login_flow()
+    token = gh_token()
+    if not token:
+        raise RuntimeError("Could not get GitHub access. Try again.")
+    owner = gh_username(token)
+    if not owner:
+        raise RuntimeError("Could not read GitHub username. Try again.")
+    repo = re.sub(r"[^A-Za-z0-9_.-]", "-", (repo_name or "my-usa-proxy").strip()) or "my-usa-proxy"
     log(f"Checking {owner}/{repo} ...")
-    code, data = api_req("GET", f"{API}/repos/{owner}/{repo}", token)
-    if code != 200:
-        raise RuntimeError("Cannot access repo. Make it PUBLIC and allow "
-                           "[repo]+[workflow] token scopes.")
+    code, _ = api_req("GET", f"{API}/repos/{owner}/{repo}", token)
+    if code == 404:
+        log(f"Creating public repo {repo} ...")
+        code, _ = api_req("POST", f"{API}/user/repos", token,
+                          {"name": repo, "private": False,
+                           "description": "My private USA proxy (X5Proxy)"})
+        if code not in (200, 201):
+            raise RuntimeError("Could not create the repo. Create it manually at "
+                               "https://github.com/new (Public, empty).")
+    elif code != 200:
+        raise RuntimeError("Cannot access the repo. Make it PUBLIC.")
     password = "X5_" + secrets.token_urlsafe(14).replace("-", "S").replace("_", "s") + "!Strong"
     for path in PROJECT_FILES:
         log(f"Uploading {path} ...")
@@ -175,7 +286,7 @@ def setup_backend(owner, repo, token, log):
             endpoint = v
             break
         log(f"... still building ({i + 1}/48)")
-    cfg = {"owner": owner, "repo": repo, "token": token,
+    cfg = {"owner": owner, "repo": repo,
            "password": password, "method": SS_METHOD}
     save_config(cfg)
     if endpoint:
@@ -193,7 +304,7 @@ def gui_setup(error_msg=""):
 
     root = tk.Tk()
     root.title("X5Proxy - Setup (one time)")
-    root.geometry("520x560")
+    root.geometry("520x480")
     root.resizable(False, False)
 
     frm = ttk.Frame(root, padding=16)
@@ -201,46 +312,36 @@ def gui_setup(error_msg=""):
 
     ttk.Label(frm, text="X5Proxy - USA proxy in one click",
               font=("Segoe UI", 13, "bold")).pack(anchor="w")
-    ttk.Label(frm, text="Do these 3 steps once, then press Start:",
+    ttk.Label(frm, text="No tokens, no manual upload. Just:",
               font=("Segoe UI", 10)).pack(anchor="w", pady=(6, 4))
-    steps = ("1. Create a free GitHub account:\n"
+    steps = ("1. Create a free GitHub account (once):\n"
              "     https://github.com/signup\n\n"
-             "2. Create a NEW PUBLIC empty repository:\n"
-             "     https://github.com/new  (Public, no README)\n\n"
-             "3. Create a token (copy it):\n"
-             "     https://github.com/settings/tokens/new\n"
-             "     scopes: [repo] + [workflow]")
+             "2. Type a name for your proxy repo below.\n\n"
+             "3. Press Start: a browser tab opens,\n"
+             "     click Authorize, and the app does the rest:\n"
+             "     creates the repo, uploads everything,\n"
+             "     starts the USA server automatically.")
     ttk.Label(frm, text=steps, font=("Segoe UI", 9),
               justify="left").pack(anchor="w")
 
-    ttk.Label(frm, text="Repo URL:", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(10, 0))
-    repo_var = tk.StringVar()
+    ttk.Label(frm, text="Repo name:", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(10, 0))
+    repo_var = tk.StringVar(value="my-usa-proxy")
     ttk.Entry(frm, textvariable=repo_var, width=60).pack(fill="x")
-    ttk.Label(frm, text="Example: https://github.com/YOU/my-usa-proxy",
-              font=("Segoe UI", 8)).pack(anchor="w")
-
-    ttk.Label(frm, text="Token:", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(8, 0))
-    tok_var = tk.StringVar()
-    ttk.Entry(frm, textvariable=tok_var, width=60, show="*").pack(fill="x")
 
     status = tk.StringVar(value=error_msg)
     ttk.Label(frm, textvariable=status, font=("Segoe UI", 9),
               foreground="red", wraplength=480).pack(anchor="w", pady=(8, 0))
 
     def on_start():
-        parsed = parse_repo_url(repo_var.get())
-        if not parsed:
-            status.set("Invalid repo URL. Example: https://github.com/YOU/my-usa-proxy")
+        name = (repo_var.get() or "").strip()
+        if not name:
+            status.set("Type a repo name, e.g. my-usa-proxy")
             return
-        if not tok_var.get().strip():
-            status.set("Token is empty. Create one at github.com/settings/tokens/new")
-            return
-        owner, repo = parsed
         btn.config(state="disabled")
-        status.set("Working ... uploading project and starting the server.")
+        status.set("Working ... browser login, then full auto setup.")
         root.update()
         try:
-            cfg = setup_backend(owner, repo, tok_var.get().strip(), status.set)
+            cfg = setup_backend(name, status.set)
             result["cfg"] = cfg
             root.destroy()
         except Exception as e:
@@ -355,12 +456,15 @@ def endpoint_reachable(endpoint, timeout=10):
 
 def cancel_stuck_runs(cfg):
     """Cancel any in-progress proxy runs so a fresh one can take over."""
+    token = api_token(cfg)
+    if not token:
+        return 0
     try:
         code, data = api_req(
             "GET",
             f"{API}/repos/{cfg['owner']}/{cfg['repo']}"
             "/actions/workflows/proxy.yml/runs?status=in_progress&per_page=5",
-            cfg.get("token", ""))
+            token)
         if code != 200:
             return 0
         n = 0
@@ -368,7 +472,7 @@ def cancel_stuck_runs(cfg):
             rc, _ = api_req("POST",
                             f"{API}/repos/{cfg['owner']}/{cfg['repo']}"
                             f"/actions/runs/{r['id']}/cancel",
-                            cfg.get("token", ""))
+                            token)
             if rc in (202, 204):
                 n += 1
         return n
@@ -378,11 +482,15 @@ def cancel_stuck_runs(cfg):
 
 def request_fresh_server(cfg, log=print):
     """Ask GitHub for a brand-new server run. Returns True if accepted."""
+    token = api_token(cfg)
+    if not token:
+        log("GitHub session expired. Restart the app to log in again.")
+        return False
     cancel_stuck_runs(cfg)
     code, data = api_req(
         "POST",
         f"{API}/repos/{cfg['owner']}/{cfg['repo']}/actions/workflows/proxy.yml/dispatches",
-        cfg.get("token", ""), {"ref": "main"})
+        token, {"ref": "main"})
     if code in (201, 204):
         log("Fresh server requested. Waiting for the new endpoint ...")
         return True
@@ -453,11 +561,16 @@ def run_terminal(cfg):
     chrome = find_chrome()
     if not chrome:
         print("WARNING: Chrome not found. Install Google Chrome first.")
-    # repo sanity check
-    code, _ = api_req("GET", f"{API}/repos/{cfg['owner']}/{cfg['repo']}",
-                      cfg.get("token", ""))
-    if code == 404:
-        raise RuntimeError("Repo not found (renamed/deleted?). Enter the URL again.")
+    # repo sanity check (needs GitHub session only for healing/dispatch)
+    token = api_token(cfg)
+    if token:
+        code, _ = api_req("GET", f"{API}/repos/{cfg['owner']}/{cfg['repo']}",
+                          token)
+        if code == 404:
+            raise RuntimeError("Repo not found (renamed/deleted?). Enter it again.")
+        if code == 401:
+            print("GitHub session expired - you will be asked to log in again if needed.",
+                  flush=True)
     proc = None
     tun_log = None
     current = ""
