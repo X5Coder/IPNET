@@ -544,9 +544,18 @@ def gui_setup(error_msg=""):
             draw_btn(CTA)
             return
         status.set("Working ... browser login, then full auto setup. Check the terminal window too.")
+
+        def log(msg):
+            status.set(msg)
+            try:
+                root.update_idletasks()
+                root.update()
+            except Exception:
+                pass
+
         root.update()
         try:
-            cfg = setup_backend(name, status.set)
+            cfg = setup_backend(name, log)
             result["cfg"] = cfg
             root.destroy()
         except Exception as e:
