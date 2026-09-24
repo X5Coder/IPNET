@@ -1,0 +1,20 @@
+name: diag proxy local
+on: workflow_dispatch
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          PORT=8080 PROXY_USER=x5coder PROXY_PASS=X5_Secure_2026!Strong python3 server.py > /tmp/proxy.log 2>&1 &
+          sleep 3
+          cat /tmp/proxy.log
+          echo "=== LOCAL HTTP ==="
+          curl -v --max-time 15 -x http://x5coder:X5_Secure_2026!Strong@127.0.0.1:8080 http://httpbin.org/ip || echo LOCAL_HTTP_FAIL
+          echo "=== LOCAL HTTPS ==="
+          curl -v --max-time 25 -x http://x5coder:X5_Secure_2026!Strong@127.0.0.1:8080 https://httpbin.org/ip || echo LOCAL_HTTPS_FAIL
+          echo "=== DIRECT HTTPS (no proxy, runner egress) ==="
+          curl -s --max-time 15 https://httpbin.org/ip || echo DIRECT_FAIL
+          echo "=== PROXY LOG ==="
+          cat /tmp/proxy.log
