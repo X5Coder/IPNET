@@ -22,8 +22,11 @@ PROXY_PASS = os.environ.get("PROXY_PASS", os.environ.get("PROXY_PASSWORD", "X5_U
 # Allow disabling auth if explicitly set
 DISABLE_AUTH = os.environ.get("DISABLE_AUTH", "false").lower() == "true"
 
-BUFFER_SIZE = 65536
+BUFFER_SIZE = 131072  # 128KB for high speed
 CONN_TIMEOUT = 15
+MAX_CONNECTIONS = 512
+# Simple rate limit: max requests per IP per minute (anti-abuse)
+RATE_LIMIT = int(os.environ.get("RATE_LIMIT", "120"))
 
 HTML_STATUS = """HTTP/1.1 200 OK\r
 Content-Type: text/html; charset=utf-8\r
@@ -96,8 +99,19 @@ def send_407(client):
     except:
         pass
 
+def set_fast(sock):
+    try:
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, BUFFER_SIZE)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, BUFFER_SIZE)
+    except:
+        pass
+
 def relay(src, dst):
-    """Bidirectional relay until one closes"""
+    """High-speed bidirectional relay"""
+    set_fast(src)
+    set_fast(dst)
     src.setblocking(False)
     dst.setblocking(False)
     sockets = [src, dst]
@@ -355,12 +369,17 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, BUFFER_SIZE)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, BUFFER_SIZE)
+    except:
+        pass
+    try:
         sock.bind((HOST, PORT))
     except Exception as e:
         log(f"Bind failed on {HOST}:{PORT} - {e}")
         sys.exit(1)
-    sock.listen(256)
-    log(f"Proxy ready - waiting for connections ...")
+    sock.listen(MAX_CONNECTIONS)
+    log(f"Proxy ready - waiting for connections (max {MAX_CONNECTIONS}, buf {BUFFER_SIZE}) ...")
 
     try:
         while True:

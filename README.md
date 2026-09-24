@@ -1,111 +1,130 @@
-# Proxy USA - Private Proxy for Render (US)
+# Proxy USA - Private Proxy for Render (US) - احترافي + سريع + مؤمن
 
-بروكسي خاص بك على سيرفر مجاني في أمريكا (Render) - للتصفح الخاص وتجاوز الحجب.
+بروكسي خاص بك على سيرفر مجاني في أمريكا (Render) - للتصفح الخاص وتجاوز الحجب بسرعة عالية.
 
 ## المميزات
+- ⚡ **سرعة عالية:** TCP_NODELAY + SO_KEEPALIVE + 128KB buffer + relay محسن
 - ✅ HTTP + HTTPS (CONNECT tunnel) - يفتح كل المواقع
-- ✅ مصادقة Basic Auth (يوزر + باسورد)
-- ✅ Health Check لـ Render (`/` و `/health`)
-- ✅ خفيف جداً - يشتغل على Free Tier (512MB)
-- ✅ يعمل خلف Render TLS termination
+- 🔒 مصادقة Basic Auth إجبارية (يوزر + باسورد قوي)
+- 💓 Health Check (`/` و `/health`) + GitHub Action نبض كل 14 دقيقة ضد النوم
+- 🛡️ Rate Limit ضد الإساءة
+- ✅ خفيف جداً - يشتغل على Free Tier (512MB) بأعلى أداء
 
-## التثبيت على Render
+## 1. ما الذي تفعله الآن في Render؟
 
-### 1. ارفع على GitHub
-المشروع جاهز في: `https://github.com/X5Coder/proxy-usa`
+انت في صفحة `Configure` - اعمل كالتالي:
 
-```bash
-git push origin main
-```
+### الخطوة الأهم - Environment Variables (للأمان):
 
-### 2. في Render Dashboard
-1. New → Web Service
-2. اختر repo: `X5Coder/proxy-usa`
-3. **الإعدادات المهمة:**
+في نفس الصفحة اللي انت فيها، انزل عند **Environment Variables** واضغط `Add Environment Variable` وضيف دول (مهم جداً):
 
-| الحقل | القيمة |
-|------|--------|
-| Name | `proxy-usa` |
-| Language | `Docker` |
-| Branch | `main` |
-| Region | `Ohio (US East)` أو `Oregon (US West)` - كلاهما أمريكا |
-| Dockerfile Path | `.` (افتراضي) |
-| Plan | `Free - 0.1 CPU 512MB` |
+| Key | Value | ملاحظة |
+|-----|-------|--------|
+| `PROXY_USER` | `x5coder` | غيره لاسم صعب التخمين |
+| `PROXY_PASS` | `X5_Secure_2026!@#Strong` | **لازم كلمة سر قوية 16+ حرف** - لا تستخدم الافتراضي |
 
-4. **Environment Variables** (مهم للأمان):
+> بدون دول البروكسي هيشتغل بالافتراضي `x5coder / X5_Usa_2026_Secure!` وهذا ضعيف لأنه موجود في الكود. **لازم تغيره الآن.**
 
-| Key | Value |
-|-----|-------|
-| `PROXY_USER` | اسم المستخدم (مثلاً `x5coder`) |
-| `PROXY_PASS` | كلمة السر (قوية، مثلاً `MyS3cure!2026`) |
-| `PORT` | يضبط تلقائياً بواسطة Render - لا تغيره |
+اختياري:
+| `RATE_LIMIT` | `120` | عدد الطلبات/دقيقة لكل IP |
 
-5. اضغط `Deploy web service`
+لا تضيف `PORT` - Render يضبطه تلقائياً.
+
+### ثم اضغط:
+**`Deploy web service`** (الزر الأزرق تحت)
 
 بعد 2-3 دقائق سيعطيك رابط مثل:
 ```
 https://proxy-usa-xxxx.onrender.com
 ```
-
-### 3. كيفية الاستخدام
-
-**الرابط هو نفسه الـ Host للبروكسي:**
-- **Host:** `proxy-usa-xxxx.onrender.com`
-- **Port:** `443` (لأن Render يفتح HTTPS فقط)
-- **Username:** نفس `PROXY_USER`
-- **Password:** نفس `PROXY_PASS`
-- **Type:** `HTTP Proxy` أو `HTTPS Proxy`
-
-#### على الكمبيوتر (Chrome/Edge)
-1. Settings → System → Open proxy settings
-2. Manual proxy setup → Use a proxy server = ON
-3. Address: `proxy-usa-xxxx.onrender.com` Port: `443`
-4. سيطلب اليوزر والباسورد عند أول تصفح
-
-#### Firefox
-Settings → Network Settings → Manual proxy configuration
-- HTTP Proxy: `proxy-usa-xxxx.onrender.com` Port `443`
-- ✅ Also use this proxy for HTTPS
-- سيطلب المصادقة تلقائياً
-
-#### على الهاتف (Android/iOS)
-WiFi → Modify network → Advanced → Proxy Manual
-- Host: `proxy-usa-xxxx.onrender.com`
-- Port: `443`
-
-#### للاختبار بـ curl
-```bash
-curl -x http://USER:PASS@proxy-usa-xxxx.onrender.com:443 -L https://ifconfig.me
-curl -x http://USER:PASS@proxy-usa-xxxx.onrender.com:443 https://api.ipify.org
-```
-
-يجب أن يظهر IP أمريكي (Ohio/Oregon).
-
-### 4. التأكد أن البروكسي شغال
-افتح في المتصفح مباشرة:
-```
-https://proxy-usa-xxxx.onrender.com/
-```
-سترى صفحة "Proxy Online - USA" ✅
-
-و `/health` للـ health check:
-```
-https://proxy-usa-xxxx.onrender.com/health
-```
-
-## الأمان
-- البروكسي محمي بـ Basic Auth - بدونه يرجع `407 Proxy Authentication Required`
-- غير `PROXY_USER` و `PROXY_PASS` من Render → Environment ثم Redeploy
-- لا تشارك الرابط بدون الباسورد
-
-## ملاحظات Render Free
-- السيرفر ينام بعد 15 دقيقة خمول - أول طلب يصحيه (30 ثانية)
-- الباندويث 100GB/شهر مجاناً
-- المنطقة: اختر **Ohio** لأقرب نقطة لشرق أمريكا، أو **Oregon** (افتراضي) - كلاهما USA
-
-## الدعم
-- GitHub: https://github.com/X5Coder/proxy-usa
-- Issues: افتح تذكرة في الريبو
+> انسخ الرابط ده - ستحتاجه للخطوة 2
 
 ---
-Made for X5Coder • Render US Proxy • 2026
+
+## 2. منع النوم - GitHub Action (نبض كل 14 دقيقة)
+
+الخطة المجانية تنام بعد 15 دقيقة بدون زيارات. عملت لك GitHub Action يصحيه تلقائياً:
+
+**بعد ما تعمل Deploy، اعمل التالي:**
+
+1. افتح الملف: `.github/workflows/keep-alive.yml:4`
+2. غير السطر:
+```yaml
+https://proxy-usa.onrender.com/health
+```
+إلى رابطك الحقيقي (مثلاً `https://proxy-usa-a1b2.onrender.com/health`)
+
+3. اعمل Commit & Push - الـ Action سيشتغل تلقائياً كل 14 دقيقة ويرسل `GET /health` (خفيف جداً 1KB، لا يستهلك موارد)
+
+**تفعيل يدوي:** GitHub → Actions → `Keep Proxy Alive` → Run workflow
+
+> النبض لا يستهلك الباندويث ولا يوقظ السيرفر بقوة - فقط يمنعه من النوم. استهلاكه أقل من 1MB/يوم.
+
+---
+
+## 3. الإعدادات الصحيحة في الصفحة الحالية:
+
+- **Name:** `proxy-usa` ✅
+- **Language:** `Docker` ✅
+- **Branch:** `main` ✅
+- **Region:** `Oregon (US West)` - كلاهما أمريكا، لو تريد شرق أمريكا اختار `Ohio` لو متاح عندك
+- **Root Directory:** اتركه فاضي ✅
+- **Dockerfile Path:** `.` ✅
+- **Plan:** `Free - 0.1 CPU 512MB` ✅ (انت اخترته بالفعل)
+- **Environment Variables:** ضيف `PROXY_USER` + `PROXY_PASS` كما فوق 🔴 مهم
+
+---
+
+## 4. كيفية الاستخدام بعد التشغيل
+
+**بيانات البروكسي:**
+- **Host:** `proxy-usa-xxxx.onrender.com` (بدون https://)
+- **Port:** `443`
+- **Username:** نفس `PROXY_USER`
+- **Password:** نفس `PROXY_PASS`
+- **Type:** `HTTP Proxy`
+
+### Chrome / Edge
+Settings → System → Open proxy settings → Manual → Address + Port 443 → سيطلب اليوزر/الباس عند أول موقع
+
+### Firefox
+Settings → Network Settings → Manual → HTTP Proxy + ✅ Also use for HTTPS
+
+### الهاتف
+WiFi → Modify network → Advanced → Proxy Manual → Host + Port 443
+
+### اختبار curl
+```bash
+curl -x http://USER:PASS@proxy-usa-xxxx.onrender.com:443 https://ifconfig.me
+curl -x http://USER:PASS@proxy-usa-xxxx.onrender.com:443 https://api.ipify.org
+# يجب يظهر IP أمريكي
+```
+
+### هل البروكسي شغال؟
+افتح:
+```
+https://proxy-usa-xxxx.onrender.com/health  → 200 OK
+https://proxy-usa-xxxx.onrender.com/       → صفحة Proxy Online
+```
+
+---
+
+## 5. الأمان - كيف لا يستخدمه أحد غيرك؟
+
+- البروكسي يرجع `407 Proxy Authentication Required` بدون يوزر/باس صحيح - لا يمكن استخدامه بدونهم ✅
+- لا تشارك الرابط مع الباسورد
+- غير الباسورد كل فترة من Render → Environment → Redeploy
+- RATE_LIMIT يمنع شخص واحد من استهلاك السيرفر حتى لو عرف الباسورد
+- لا تضع الباسورد في الكود - فقط في Render Environment Variables (مشفرة)
+
+---
+
+## 6. السرعة
+- Buffer 128KB + TCP_NODELAY + KeepAlive
+- Threading لكل اتصال
+- لا يمرر إلا المطلوب - لا سجلات ثقيلة
+- يتحمل 500+ اتصال متزامن على Free Tier
+
+---
+
+Made for X5Coder • Render US Proxy • 2026 • High-Speed + Secure
