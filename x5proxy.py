@@ -1174,9 +1174,9 @@ def run_terminal(cfg):
                 dead = 0
             elif current:
                 dead += 1
-                slog(f"Proxy not responding ({dead}/3) - getting a new one ...",
-                      flush=True)
-                if dead >= 3 and time.time() - last_heal > 300:
+                slog(f"Proxy not responding ({dead}/2) - getting a new one ...",
+                     flush=True)
+                if dead >= 2 and time.time() - last_heal > 120:
                     last_heal = time.time()
                     dead = 0
                     if not api_token(cfg):
@@ -1186,7 +1186,7 @@ def run_terminal(cfg):
                           flush=True)
                     if request_fresh_server(cfg):
                         wait_for_new_endpoint(cfg, current)
-            time.sleep(60)
+            time.sleep(30)
     except KeyboardInterrupt:
         slog("\nStopping...")
     finally:

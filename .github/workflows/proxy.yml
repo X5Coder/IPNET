@@ -160,8 +160,8 @@ jobs:
           ss_alive() {
             # real end-to-end traffic through the public tunnel (2 hosts,
             # avoids false alarms from one flaky test site)
-            curl -s --max-time 15 --socks5-hostname 127.0.0.1:1081 http://httpbin.org/ip >/dev/null 2>&1 && return 0
-            curl -s --max-time 15 --socks5-hostname 127.0.0.1:1081 http://ipinfo.io/ip >/dev/null 2>&1 && return 0
+            curl -s --max-time 10 --socks5-hostname 127.0.0.1:1081 http://httpbin.org/ip >/dev/null 2>&1 && return 0
+            curl -s --max-time 10 --socks5-hostname 127.0.0.1:1081 http://ipinfo.io/ip >/dev/null 2>&1 && return 0
             return 1
           }
           restart_http_bore() {
@@ -196,8 +196,8 @@ jobs:
           _SS0=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore-ss.log 2>/dev/null | head -1)
           restart_monitor "$(echo $_SS0 | cut -d: -f1)" "$(echo $_SS0 | cut -d: -f2)"
           fail_http=0; fail_ss=0
-          for i in $(seq 1 300); do
-            echo "[$i/300] $(date -u) - alive"
+          for i in $(seq 1 600); do
+            echo "[$i/600] $(date -u) - alive"
             URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore.log 2>/dev/null | head -1)
             SS_URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore-ss.log 2>/dev/null | head -1)
             echo "HTTP_PROXY bore: $URL | SHADOWSOCKS bore: $SS_URL"
@@ -241,5 +241,5 @@ jobs:
               echo "HEALED: HTTP=$URL SS=$SS_URL"
             fi
             echo "--- proxy.log tail ---"; tail -5 /tmp/proxy.log || true
-            sleep 60
+            sleep 30
           done
