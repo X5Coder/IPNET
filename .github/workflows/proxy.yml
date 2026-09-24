@@ -40,7 +40,19 @@ jobs:
           sleep 8
           cat /tmp/bore.log
           echo "=== BORE URL ==="
-          grep -oE "bore\.pub:[0-9]+" /tmp/bore.log || cat /tmp/bore.log
+          URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore.log | head -1)
+          echo "BORE_URL=$URL" | tee /tmp/bore_url.txt
+          echo "bore-url=$URL" >> $GITHUB_OUTPUT
+          # انشر الرابط في Gist قابل للقراءة فوراً
+          echo "$URL" > /tmp/bore_url_simple.txt
+          gh api repos/X5Coder/proxy-usa/issues --jq '.[0].number' 2>&1 | head
+          # حاول انشاء/تحديث ملف bore_url.txt في الريبو للقراءة الفورية
+          echo "$URL" > bore_url.txt
+          git config user.name "proxy-bot"
+          git config user.email "bot@proxy.usa"
+          git add bore_url.txt || true
+          git commit -m "update bore $URL" || true
+          git push || true
           echo "Keep alive for 5 hours ..."
 
       - name: Keep alive
