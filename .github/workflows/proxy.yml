@@ -5,9 +5,6 @@ on:
   schedule:
     # كل 5 ساعات - يرجع يشتغل تلقائي لو فصل (Actions حدها 6 ساعات)
     - cron: '0 */5 * * *'
-  push:
-    branches: [main]
-    paths: ['.github/workflows/proxy.yml']
 
 permissions:
   contents: write
@@ -23,59 +20,112 @@ jobs:
       - name: Start proxy
         run: |
           echo "Starting proxy on 0.0.0.0:8080 ..."
-          PORT=8080 PROXY_USER=x5coder PROXY_PASS=X5_Secure_2026!Strong python3 server.py > /tmp/proxy.log 2>&1 &
+          PORT=8080 PROXY_USER=x5coder PROXY_PASS='X5_Secure_2026!Strong' python3 server.py > /tmp/proxy.log 2>&1 &
+          echo $! > /tmp/proxy.pid
           sleep 3
           cat /tmp/proxy.log
           curl -s http://127.0.0.1:8080/health | head -5
           echo "Proxy ready"
           echo "=== LOCAL PROXY SELF-TEST (inside runner) ==="
           echo "--- http via localhost proxy ---"
-          curl -s --max-time 15 -x http://x5coder:X5_Secure_2026!Strong@127.0.0.1:8080 http://httpbin.org/ip || echo "LOCAL HTTP FAIL"
+          curl -s --max-time 15 -x 'http://x5coder:X5_Secure_2026!Strong@127.0.0.1:8080' http://httpbin.org/ip || echo "LOCAL HTTP FAIL"
           echo ""
           echo "--- https via localhost proxy (CONNECT) ---"
-          curl -s --max-time 20 -x http://x5coder:X5_Secure_2026!Strong@127.0.0.1:8080 https://httpbin.org/ip || echo "LOCAL HTTPS FAIL"
+          curl -s --max-time 20 -x 'http://x5coder:X5_Secure_2026!Strong@127.0.0.1:8080' https://httpbin.org/ip || echo "LOCAL HTTPS FAIL"
           echo ""
           echo "--- runner egress ip (should be US) ---"
           curl -s --max-time 10 https://ipinfo.io/json | head -12 || true
 
       - name: Install bore
         run: |
-          # try binary download, fallback to cargo
-          curl -sL https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-gnu.tar.gz -o /tmp/bore.tar.gz || true
-          if tar tzf /tmp/bore.tar.gz >/dev/null 2>&1; then tar xz -f /tmp/bore.tar.gz -C /tmp && chmod +x /tmp/bore; else echo "tar failed, trying cargo"; cargo install bore-cli --locked && cp ~/.cargo/bin/bore /tmp/bore; fi
+          set -x
+          # bore 0.5.0 asset name check + fallback to cargo (without --locked to avoid yanked deps)
+          rm -f /tmp/bore /tmp/bore.tar.gz
+          if curl -sL --max-time 60 https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-gnu.tar.gz -o /tmp/bore.tar.gz; then
+            if tar tzf /tmp/bore.tar.gz >/dev/null 2>&1; then
+              tar xz -f /tmp/bore.tar.gz -C /tmp && chmod +x /tmp/bore && echo "bore binary ok"
+            else
+              echo "tar invalid, fallback cargo"; rm -f /tmp/bore
+            fi
+          fi
+          if [ ! -x /tmp/bore ]; then
+            cargo install bore-cli && cp ~/.cargo/bin/bore /tmp/bore
+          fi
           /tmp/bore --version
 
       - name: Start bore tunnel (raw TCP - supports CONNECT)
         run: |
           echo "Starting bore tunnel ..."
+          rm -f /tmp/bore.log
           /tmp/bore local 8080 --to bore.pub > /tmp/bore.log 2>&1 &
-          sleep 8
+          echo $! > /tmp/bore.pid
+          sleep 10
           cat /tmp/bore.log
           echo "=== BORE URL ==="
           URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore.log | head -1)
+          if [ -z "$URL" ]; then echo "BORE_START_FAIL"; cat /tmp/bore.log; exit 1; fi
           echo "BORE_URL=$URL" | tee /tmp/bore_url.txt
-          echo "bore-url=$URL" >> $GITHUB_OUTPUT
-          # انشر الرابط في Gist قابل للقراءة فوراً
-          echo "$URL" > /tmp/bore_url_simple.txt
-          gh api repos/X5Coder/proxy-usa/issues --jq '.[0].number' 2>&1 | head
-          # حاول انشاء/تحديث ملف bore_url.txt في الريبو للقراءة الفورية
           echo "$URL" > bore_url.txt
           git config user.name "proxy-bot"
           git config user.email "bot@proxy.usa"
           git add bore_url.txt || true
           git commit -m "update bore $URL" || true
           git push || true
+          echo "### BORE_URL: $URL" >> $GITHUB_STEP_SUMMARY
           echo "Keep alive for 5 hours ..."
+
+      - name: Public loopback test (via bore URL - must pass http+https)
+        run: |
+          URL=$(cat /tmp/bore_url.txt | grep -oE "bore\.pub:[0-9]+")
+          echo "Testing via public URL: $URL"
+          echo "--- http via public URL ---"
+          curl -s --max-time 20 -x "http://x5coder:X5_Secure_2026!Strong@$URL" http://httpbin.org/ip || { echo "PUBLIC HTTP FAIL"; exit 1; }
+          echo ""
+          echo "--- https via public URL (CONNECT through bore) ---"
+          curl -s --max-time 30 -x "http://x5coder:X5_Secure_2026!Strong@$URL" https://httpbin.org/ip || { echo "PUBLIC HTTPS FAIL"; echo "=== proxy log ==="; cat /tmp/proxy.log; echo "=== bore log ==="; cat /tmp/bore.log; exit 1; }
+          echo ""
+          echo "PUBLIC TEST OK - both http+https work through bore"
+          echo "=== proxy log ==="
+          cat /tmp/proxy.log
 
       - name: Keep alive
         run: |
-          # يفضل شغال 5 ساعات - يطبع الرابط + سجل البروكسي كل دقيقة لرؤية محاولات CONNECT
+          # يفضل شغال 5 ساعات - يراقب bore + البروكسي + يعيد التشغيل لو مات
           for i in $(seq 1 300); do
-            echo "[$i/300] $(date) - proxy alive"
-            cat /tmp/bore.log | grep -oE "bore\.pub:[0-9]+" || echo "waiting bore..."
+            echo "[$i/300] $(date -u) - proxy alive"
+            URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore.log | head -1)
+            echo "BORE: $URL"
+            # هل عملية bore عايشة؟
+            if kill -0 $(cat /tmp/bore.pid) 2>/dev/null; then echo "bore pid alive"; else
+              echo "BORE DEAD - restarting..."
+              /tmp/bore local 8080 --to bore.pub > /tmp/bore.log 2>&1 &
+              echo $! > /tmp/bore.pid
+              sleep 10
+              cat /tmp/bore.log
+              URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore.log | head -1)
+              echo "$URL" > bore_url.txt
+              git config user.name "proxy-bot" || true
+              git config user.email "bot@proxy.usa" || true
+              git add bore_url.txt || true
+              git commit -m "update bore $URL (restart)" || true
+              git push || true
+            fi
+            # هل البروكسي عايش؟
+            if kill -0 $(cat /tmp/proxy.pid) 2>/dev/null; then echo "proxy pid alive"; else
+              echo "PROXY DEAD - restarting..."
+              PORT=8080 PROXY_USER=x5coder PROXY_PASS='X5_Secure_2026!Strong' python3 server.py > /tmp/proxy.log 2>&1 &
+              echo $! > /tmp/proxy.pid
+              sleep 3
+            fi
             curl -s http://127.0.0.1:8080/health | grep -q "Proxy" && echo "health ok" || echo "health fail"
-            echo "--- proxy.log tail (remote attempts) ---"
-            tail -15 /tmp/proxy.log || true
+            # اختبار دوري خفيف عبر النفق العلني كل 10 دقائق
+            if [ $((i % 10)) -eq 0 ]; then
+              echo "--- periodic public test ---"
+              curl -s --max-time 20 -x "http://x5coder:X5_Secure_2026!Strong@$URL" http://httpbin.org/ip || echo "periodic HTTP fail"
+              curl -s --max-time 30 -x "http://x5coder:X5_Secure_2026!Strong@$URL" https://httpbin.org/ip || echo "periodic HTTPS fail"
+            fi
+            echo "--- proxy.log tail (CONNECT phases) ---"
+            tail -20 /tmp/proxy.log || true
             echo "--- end log ---"
             sleep 60
           done

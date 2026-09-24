@@ -108,36 +108,81 @@ def set_fast(sock):
         pass
 
 def _pipe(src, dst):
-    """One direction, blocking - robust through high-latency tunnels (bore)."""
+    """One direction, blocking - with idle timeout so threads don't leak."""
     try:
         while True:
-            data = src.recv(BUFFER_SIZE)
+            try:
+                data = src.recv(BUFFER_SIZE)
+            except socket.timeout:
+                break
             if not data:
                 break
             dst.sendall(data)
     except:
         pass
     try:
-        dst.shutdown(socket.SHUT_WR)
+        try:
+            dst.shutdown(socket.SHUT_WR)
+        except:
+            try:
+                dst.close()
+            except:
+                pass
     except:
         pass
 
+def relay_select(client, remote):
+    """Single-thread select-based relay - stable over high-latency tunnels (bore).
+
+    Why: the old 2-thread relay with join() hangs when one direction stays
+    idle-open (TLS keep-alive) while bore buffers the other direction.
+    select() forwards whichever side has data and closes on clean EOF.
+    """
+    set_fast(client)
+    set_fast(remote)
+    for s in (client, remote):
+        try:
+            s.setblocking(False)
+        except:
+            pass
+    socks = [client, remote]
+    peer = {client: remote, remote: client}
+    idle = 0
+    # 180s idle max (TLS sessions), 0.5s select slice
+    while idle < 360:
+        try:
+            r, _, _ = select.select(socks, [], [], 1.0)
+        except:
+            break
+        if not r:
+            idle += 1
+            continue
+        idle = 0
+        for src in r:
+            dst = peer[src]
+            try:
+                data = src.recv(BUFFER_SIZE)
+            except BlockingIOError:
+                continue
+            except:
+                return
+            if not data:
+                return
+            try:
+                # blocking send with timeout via setblocking dance
+                dst.setblocking(True)
+                try:
+                    dst.settimeout(30)
+                except:
+                    pass
+                dst.sendall(data)
+                dst.setblocking(False)
+            except:
+                return
+
 def relay(src, dst):
-    """Blocking bidirectional relay via 2 threads - stable for TLS/CONNECT."""
-    set_fast(src)
-    set_fast(dst)
-    # blocking with generous timeout so idle TLS sessions don't die fast
-    try:
-        src.settimeout(120)
-        dst.settimeout(120)
-    except:
-        pass
-    t1 = threading.Thread(target=_pipe, args=(src, dst), daemon=True)
-    t2 = threading.Thread(target=_pipe, args=(dst, src), daemon=True)
-    t1.start()
-    t2.start()
-    t1.join()
-    t2.join()
+    """Blocking bidirectional relay via select - stable for TLS/CONNECT over bore."""
+    relay_select(src, dst)
 
 def handle_client(client, addr):
     try:
@@ -219,38 +264,59 @@ def handle_client(client, addr):
             log(f"Auth failed from {addr[0]} for {method} {target}")
             return
 
-        log(f"{addr[0]} -> {method} {target}")
+        ua = headers.get("user-agent", "-")[:60]
+        log(f"{addr[0]} -> {method} {target} UA:{ua}")
 
         # CONNECT method: tunnel for HTTPS
         if method == "CONNECT":
-            # target is host:port
+            # target is host:port (strip brackets for IPv6 literals)
             if ":" not in target:
                 target = target + ":443"
             host, port_str = target.rsplit(":", 1)
+            host = host.strip("[] ")
             try:
                 port = int(port_str)
             except:
                 port = 443
-            # Connect to remote
-            remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            remote.settimeout(CONN_TIMEOUT)
+            log(f"CONNECT {host}:{port} start from {addr[0]}")
+            # Connect to remote (IPv4/IPv6 via create_connection)
             try:
-                remote.connect((host, port))
+                remote = socket.create_connection((host, port), timeout=CONN_TIMEOUT)
+                set_fast(remote)
             except Exception as e:
                 log(f"CONNECT failed {host}:{port} - {e}")
-                client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
+                try:
+                    client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
+                except:
+                    pass
                 client.close()
                 return
+            log(f"CONNECT {host}:{port} upstream ok, sending 200")
             # Send 200 to client - keep tunnel open for TLS
             try:
                 # forward any pipelined bytes (TLS ClientHello may already be here)
                 if leftover:
                     remote.sendall(leftover)
-            except:
-                pass
-            client.sendall(b"HTTP/1.1 200 Connection Established\r\nProxy-Agent: X5-Proxy-USA/1.0\r\n\r\n")
-            # Relay - raw TCP tunnel for HTTPS
+            except Exception as e:
+                log(f"CONNECT {host}:{port} leftover fwd fail: {e}")
+            try:
+                set_fast(client)
+                client.sendall(b"HTTP/1.1 200 Connection Established\r\nProxy-Agent: X5-Proxy-USA/1.1\r\n\r\n")
+            except Exception as e:
+                log(f"CONNECT {host}:{port} send 200 fail: {e}")
+                try:
+                    remote.close()
+                except:
+                    pass
+                try:
+                    client.close()
+                except:
+                    pass
+                return
+            log(f"CONNECT {host}:{port} relay open")
+            # Relay - raw TCP tunnel for HTTPS (select-based, bore-safe)
             relay(client, remote)
+            log(f"CONNECT {host}:{port} relay closed")
             try:
                 remote.close()
             except:
@@ -326,11 +392,10 @@ def handle_client(client, addr):
             if body:
                 forward_req += body
 
-            # Connect to remote
-            remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            remote.settimeout(CONN_TIMEOUT)
+            # Connect to remote (IPv4/IPv6)
             try:
-                remote.connect((host, port))
+                remote = socket.create_connection((host, port), timeout=CONN_TIMEOUT)
+                set_fast(remote)
                 remote.sendall(forward_req)
                 # Relay response back to client
                 # Use blocking relay for response
