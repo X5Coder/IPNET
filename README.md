@@ -1,130 +1,51 @@
-# Proxy USA - Private Proxy for Render (US) - احترافي + سريع + مؤمن
+# X5Proxy — USA proxy in one click
 
-بروكسي خاص بك على سيرفر مجاني في أمريكا (Render) - للتصفح الخاص وتجاوز الحجب بسرعة عالية.
+Download **`X5Proxy.exe`** from [Releases](../../releases) and double-click it. That is all most users need.
 
-## المميزات
-- ⚡ **سرعة عالية:** TCP_NODELAY + SO_KEEPALIVE + 128KB buffer + relay محسن
-- ✅ HTTP + HTTPS (CONNECT tunnel) - يفتح كل المواقع
-- 🔒 مصادقة Basic Auth إجبارية (يوزر + باسورد قوي)
-- 💓 Health Check (`/` و `/health`) + GitHub Action نبض كل 14 دقيقة ضد النوم
-- 🛡️ Rate Limit ضد الإساءة
-- ✅ خفيف جداً - يشتغل على Free Tier (512MB) بأعلى أداء
+## How it works (3 steps, one time)
 
-## 1. ما الذي تفعله الآن في Render؟
+1. Create a free GitHub account: https://github.com/signup
+2. Create a **new PUBLIC empty repository**: https://github.com/new (Public, no README)
+3. Create a token: https://github.com/settings/tokens/new — scopes **[repo]** + **[workflow]** — copy it
 
-انت في صفحة `Configure` - اعمل كالتالي:
+Open `X5Proxy.exe`, paste the **repo URL** + **token**, press **Start**. The app then automatically:
 
-### الخطوة الأهم - Environment Variables (للأمان):
+- uploads the server project to your repo (with a fresh random password),
+- starts the GitHub Action (free USA server),
+- waits for the encrypted endpoint,
+- starts the local tunnel and opens **Chrome through the USA IP**.
 
-في نفس الصفحة اللي انت فيها، انزل عند **Environment Variables** واضغط `Add Environment Variable` وضيف دول (مهم جداً):
+## Every day use
 
-| Key | Value | ملاحظة |
-|-----|-------|--------|
-| `PROXY_USER` | `x5coder` | غيره لاسم صعب التخمين |
-| `PROXY_PASS` | `X5_Secure_2026!@#Strong` | **لازم كلمة سر قوية 16+ حرف** - لا تستخدم الافتراضي |
+- Double-click `X5Proxy.exe`.
+- A terminal window shows the proxy address, for example:
+  ```
+  PROXY ADDRESS (manual use): 127.0.0.1:1080 (SOCKS5 + HTTP)
+  SERVER: bore.pub:4521 (encrypted)
+  IP: USA (Phoenix, Arizona)
+  ```
+- Chrome opens automatically through the USA IP. Leave the terminal open.
+- The app refreshes the endpoint by itself (the address changes about every 5 hours).
+- Manual use: point any app to `127.0.0.1:1080` as SOCKS5 (or HTTP) proxy.
+- If the repo is deleted/renamed or anything breaks, the setup window opens again and asks for the repo URL.
 
-> بدون دول البروكسي هيشتغل بالافتراضي `x5coder / X5_Usa_2026_Secure!` وهذا ضعيف لأنه موجود في الكود. **لازم تغيره الآن.**
+## Why encrypted?
 
-اختياري:
-| `RATE_LIMIT` | `120` | عدد الطلبات/دقيقة لكل IP |
+Some ISPs block plain proxy `CONNECT` requests, so HTTPS fails while HTTP works.
+X5Proxy uses **Shadowsocks (aes-256-gcm)** — all traffic is encrypted, nothing to block.
 
-لا تضيف `PORT` - Render يضبطه تلقائياً.
+## Files
 
-### ثم اضغط:
-**`Deploy web service`** (الزر الأزرق تحت)
+| File | Purpose |
+|---|---|
+| `x5proxy.py` | The desktop app (built to `X5Proxy.exe`) |
+| `server.py` | USA forward proxy (HTTP + HTTPS/CONNECT) |
+| `singbox-server.json` | Encrypted Shadowsocks server config |
+| `.github/workflows/proxy.yml` | GitHub Action: runs both, exposes via bore, self-heals |
+| `ss-client-template.json` | Manual client example |
 
-بعد 2-3 دقائق سيعطيك رابط مثل:
-```
-https://proxy-usa-xxxx.onrender.com
-```
-> انسخ الرابط ده - ستحتاجه للخطوة 2
+## Notes
 
----
-
-## 2. منع النوم - GitHub Action (نبض كل 14 دقيقة)
-
-الخطة المجانية تنام بعد 15 دقيقة بدون زيارات. عملت لك GitHub Action يصحيه تلقائياً:
-
-**بعد ما تعمل Deploy، اعمل التالي:**
-
-1. افتح الملف: `.github/workflows/keep-alive.yml:4`
-2. غير السطر:
-```yaml
-https://proxy-usa.onrender.com/health
-```
-إلى رابطك الحقيقي (مثلاً `https://proxy-usa-a1b2.onrender.com/health`)
-
-3. اعمل Commit & Push - الـ Action سيشتغل تلقائياً كل 14 دقيقة ويرسل `GET /health` (خفيف جداً 1KB، لا يستهلك موارد)
-
-**تفعيل يدوي:** GitHub → Actions → `Keep Proxy Alive` → Run workflow
-
-> النبض لا يستهلك الباندويث ولا يوقظ السيرفر بقوة - فقط يمنعه من النوم. استهلاكه أقل من 1MB/يوم.
-
----
-
-## 3. الإعدادات الصحيحة في الصفحة الحالية:
-
-- **Name:** `proxy-usa` ✅
-- **Language:** `Docker` ✅
-- **Branch:** `main` ✅
-- **Region:** `Oregon (US West)` - كلاهما أمريكا، لو تريد شرق أمريكا اختار `Ohio` لو متاح عندك
-- **Root Directory:** اتركه فاضي ✅
-- **Dockerfile Path:** `.` ✅
-- **Plan:** `Free - 0.1 CPU 512MB` ✅ (انت اخترته بالفعل)
-- **Environment Variables:** ضيف `PROXY_USER` + `PROXY_PASS` كما فوق 🔴 مهم
-
----
-
-## 4. كيفية الاستخدام بعد التشغيل
-
-**بيانات البروكسي:**
-- **Host:** `proxy-usa-xxxx.onrender.com` (بدون https://)
-- **Port:** `443`
-- **Username:** نفس `PROXY_USER`
-- **Password:** نفس `PROXY_PASS`
-- **Type:** `HTTP Proxy`
-
-### Chrome / Edge
-Settings → System → Open proxy settings → Manual → Address + Port 443 → سيطلب اليوزر/الباس عند أول موقع
-
-### Firefox
-Settings → Network Settings → Manual → HTTP Proxy + ✅ Also use for HTTPS
-
-### الهاتف
-WiFi → Modify network → Advanced → Proxy Manual → Host + Port 443
-
-### اختبار curl
-```bash
-curl -x http://USER:PASS@proxy-usa-xxxx.onrender.com:443 https://ifconfig.me
-curl -x http://USER:PASS@proxy-usa-xxxx.onrender.com:443 https://api.ipify.org
-# يجب يظهر IP أمريكي
-```
-
-### هل البروكسي شغال؟
-افتح:
-```
-https://proxy-usa-xxxx.onrender.com/health  → 200 OK
-https://proxy-usa-xxxx.onrender.com/       → صفحة Proxy Online
-```
-
----
-
-## 5. الأمان - كيف لا يستخدمه أحد غيرك؟
-
-- البروكسي يرجع `407 Proxy Authentication Required` بدون يوزر/باس صحيح - لا يمكن استخدامه بدونهم ✅
-- لا تشارك الرابط مع الباسورد
-- غير الباسورد كل فترة من Render → Environment → Redeploy
-- RATE_LIMIT يمنع شخص واحد من استهلاك السيرفر حتى لو عرف الباسورد
-- لا تضع الباسورد في الكود - فقط في Render Environment Variables (مشفرة)
-
----
-
-## 6. السرعة
-- Buffer 128KB + TCP_NODELAY + KeepAlive
-- Threading لكل اتصال
-- لا يمرر إلا المطلوب - لا سجلات ثقيلة
-- يتحمل 500+ اتصال متزامن على Free Tier
-
----
-
-Made for X5Coder • Render US Proxy • 2026 • High-Speed + Secure
+- The Action runs up to 5 hours, then restarts by schedule. The app follows new endpoints automatically.
+- Your password is generated per repo and stored only in your repo + your PC (`%APPDATA%/X5Proxy/config.json`).
+- `bore_url.txt` / `ss_url.txt` / `proxy_urls.txt` are auto-published by the Action — that is how the app finds the current endpoint.

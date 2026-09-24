@@ -1,14 +1,23 @@
 #!/usr/bin/env python3
 """
-X5Proxy - one-click USA proxy (terminal only).
-First run: guides you (in English) to create a GitHub account + public repo,
-then auto-uploads the server project, triggers it, waits for the encrypted
-endpoint, saves everything locally, and opens Chrome through the USA IP.
-Every next run: terminal shows the proxy address, starts the local tunnel,
-opens Chrome. No GUI, no manual steps.
+X5Proxy - one-click USA proxy.
+Single EXE distributed via GitHub Releases.
 
-Config: %APPDATA%/X5Proxy/config.json (Windows) or ~/.x5proxy/config.json
-Requires on PC: internet + Chrome. No git needed (uses GitHub API).
+First launch: a very simple window explains (in English) what to do:
+  1. Create a free GitHub account
+  2. Create a new PUBLIC empty repository
+  3. Create a token, paste the repo URL + token, press Start
+The app then automatically: uploads the server project to your repo,
+starts the GitHub Action, waits for the encrypted endpoint, saves
+everything, starts the local tunnel and opens Chrome through the USA IP.
+
+Every next launch: a terminal window shows the proxy address, refreshes
+the newest IP/endpoint automatically and opens Chrome. If the repo is
+missing or anything breaks, the setup window opens again asking for the
+repo URL.
+
+Windows: config at %APPDATA%/X5Proxy/config.json
+Needs on PC: internet + Chrome. No git needed (uses GitHub API).
 """
 import base64
 import json
@@ -56,7 +65,10 @@ def config_path():
 def load_config():
     try:
         with open(config_path(), "r", encoding="utf-8") as f:
-            return json.load(f)
+            cfg = json.load(f)
+        if cfg.get("owner") and cfg.get("repo") and cfg.get("password"):
+            return cfg
+        return None
     except Exception:
         return None
 
@@ -112,7 +124,6 @@ def download_template(path):
 
 
 def put_file(owner, repo, token, path, content, msg):
-    # get current sha if file exists
     url = f"{API}/repos/{owner}/{repo}/contents/{path}"
     req = urllib.request.Request(url)
     req.add_header("Accept", "application/vnd.github+json")
@@ -123,96 +134,123 @@ def put_file(owner, repo, token, path, content, msg):
             sha = json.loads(r.read().decode()).get("sha")
     except Exception:
         sha = None
-    payload = {
-        "message": msg,
-        "content": base64.b64encode(content.encode("utf-8")).decode(),
-    }
+    payload = {"message": msg,
+               "content": base64.b64encode(content.encode("utf-8")).decode()}
     if sha:
         payload["sha"] = sha
     return api_req("PUT", url, token, payload)
 
 
-def first_setup():
-    print("=" * 60)
-    print("  X5Proxy - First time setup (takes ~5 minutes, one time only)")
-    print("=" * 60)
-    print()
-    print("STEP 1: Create a free GitHub account (if you don't have one):")
-    print("  https://github.com/signup")
-    print()
-    print("STEP 2: Create a NEW PUBLIC repository (empty, no README):")
-    print("  https://github.com/new  -> name it e.g. 'my-usa-proxy' -> Public -> Create")
-    print()
-    print("STEP 3: Create a token (to let this app upload for you):")
-    print("  https://github.com/settings/tokens/new")
-    print("  Note: 'x5proxy-upload' | Expiration: 90 days")
-    print("  Scopes: check [repo] and [workflow] -> Generate -> COPY the token")
-    print("  (it looks like github_pat_... - you will paste it below)")
-    print()
-    while True:
-        repo_in = input("Paste your NEW repo URL (e.g. https://github.com/YOU/my-usa-proxy): ").strip()
-        parsed = parse_repo_url(repo_in)
-        if parsed:
-            owner, repo = parsed
-            break
-        print("  Invalid URL. Example: https://github.com/YOU/my-usa-proxy")
-    import getpass
-    token = getpass.getpass("Paste your GitHub token (input is hidden): ").strip()
-    if not token:
-        print("ERROR: token is empty. Run the app again."); sys.exit(1)
-
-    # verify repo access
-    print("Checking access to your repo...", flush=True)
+def setup_backend(owner, repo, token, log):
+    """Upload project, dispatch workflow, wait for endpoint. Returns cfg."""
+    log(f"Checking {owner}/{repo} ...")
     code, data = api_req("GET", f"{API}/repos/{owner}/{repo}", token)
     if code != 200:
-        print(f"ERROR: cannot access {owner}/{repo} (HTTP {code}).")
-        print("Make sure the repo exists, is PUBLIC, and the token has [repo]+[workflow] scopes.")
-        sys.exit(1)
-    print(f"OK: {owner}/{repo} reachable.")
-
+        raise RuntimeError("Cannot access repo. Make it PUBLIC and allow "
+                           "[repo]+[workflow] token scopes.")
     password = "X5_" + secrets.token_urlsafe(14).replace("-", "S").replace("_", "s") + "!Strong"
-    print("Uploading proxy project to your repo...", flush=True)
     for path in PROJECT_FILES:
+        log(f"Uploading {path} ...")
         content = download_template(path)
         if not content:
-            print(f"ERROR: cannot download template {path}. Check internet."); sys.exit(1)
+            raise RuntimeError(f"Cannot download template {path}. Check internet.")
         content = content.replace("X5_Secure_2026!Strong", password)
         code, _ = put_file(owner, repo, token, path, content, f"x5proxy: add {path}")
         if code not in (200, 201):
-            print(f"ERROR uploading {path} (HTTP {code})."); sys.exit(1)
-        print(f"  uploaded {path}")
+            raise RuntimeError(f"Upload of {path} failed (HTTP {code}).")
         time.sleep(0.5)
-
-    print("Starting your USA server (GitHub Actions)...", flush=True)
-    code, data = api_req(
-        "POST",
-        f"{API}/repos/{owner}/{repo}/actions/workflows/proxy.yml/dispatches",
-        token, {"ref": "main"},
-    )
+    log("Starting your USA server ...")
+    code, _ = api_req("POST",
+                      f"{API}/repos/{owner}/{repo}/actions/workflows/proxy.yml/dispatches",
+                      token, {"ref": "main"})
     if code not in (201, 204):
-        print(f"WARNING: workflow dispatch returned HTTP {code}: {data}.")
-        print("Open your repo -> Actions -> run 'USA Proxy' manually once.")
-    else:
-        print("Workflow started.")
-
-    print("Waiting for your encrypted endpoint (up to ~12 min)...", flush=True)
-    ss_url = ""
+        log("Auto-start got HTTP %s. You can start it once manually:" % code)
+        log(f"https://github.com/{owner}/{repo}/actions")
+    log("Waiting for the encrypted endpoint (up to ~12 min) ...")
+    endpoint = ""
     for i in range(48):
         time.sleep(15)
-        ss_url = raw_get(f"{RAW}/{owner}/{repo}/main/ss_url.txt")
-        if re.match(r"bore\.pub:\d+", ss_url or ""):
+        v = raw_get(f"{RAW}/{owner}/{repo}/main/ss_url.txt")
+        if re.match(r"bore\.pub:\d+", v or ""):
+            endpoint = v
             break
-        print(f"  ...still building ({i+1}/48)", flush=True)
-        ss_url = ""
-    if not ss_url:
-        print("TIMEOUT: server is still building. Run the app again in a few minutes.")
-        print("You can watch progress at: https://github.com/"
-              f"{owner}/{repo}/actions")
+        log(f"... still building ({i + 1}/48)")
     cfg = {"owner": owner, "repo": repo, "token": token,
            "password": password, "method": SS_METHOD}
     save_config(cfg)
-    print("Setup saved. You will never need to do this again.", flush=True)
+    if endpoint:
+        log(f"Ready! Endpoint: {endpoint}")
+    else:
+        log("Server still building - the app will pick it up automatically.")
     return cfg
+
+
+def gui_setup(error_msg=""):
+    """Very simple setup window. Returns cfg or None if closed."""
+    import tkinter as tk
+    from tkinter import ttk
+    result = {}
+
+    root = tk.Tk()
+    root.title("X5Proxy - Setup (one time)")
+    root.geometry("520x560")
+    root.resizable(False, False)
+
+    frm = ttk.Frame(root, padding=16)
+    frm.pack(fill="both", expand=True)
+
+    ttk.Label(frm, text="X5Proxy - USA proxy in one click",
+              font=("Segoe UI", 13, "bold")).pack(anchor="w")
+    ttk.Label(frm, text="Do these 3 steps once, then press Start:",
+              font=("Segoe UI", 10)).pack(anchor="w", pady=(6, 4))
+    steps = ("1. Create a free GitHub account:\n"
+             "     https://github.com/signup\n\n"
+             "2. Create a NEW PUBLIC empty repository:\n"
+             "     https://github.com/new  (Public, no README)\n\n"
+             "3. Create a token (copy it):\n"
+             "     https://github.com/settings/tokens/new\n"
+             "     scopes: [repo] + [workflow]")
+    ttk.Label(frm, text=steps, font=("Segoe UI", 9),
+              justify="left").pack(anchor="w")
+
+    ttk.Label(frm, text="Repo URL:", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(10, 0))
+    repo_var = tk.StringVar()
+    ttk.Entry(frm, textvariable=repo_var, width=60).pack(fill="x")
+    ttk.Label(frm, text="Example: https://github.com/YOU/my-usa-proxy",
+              font=("Segoe UI", 8)).pack(anchor="w")
+
+    ttk.Label(frm, text="Token:", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(8, 0))
+    tok_var = tk.StringVar()
+    ttk.Entry(frm, textvariable=tok_var, width=60, show="*").pack(fill="x")
+
+    status = tk.StringVar(value=error_msg)
+    ttk.Label(frm, textvariable=status, font=("Segoe UI", 9),
+              foreground="red", wraplength=480).pack(anchor="w", pady=(8, 0))
+
+    def on_start():
+        parsed = parse_repo_url(repo_var.get())
+        if not parsed:
+            status.set("Invalid repo URL. Example: https://github.com/YOU/my-usa-proxy")
+            return
+        if not tok_var.get().strip():
+            status.set("Token is empty. Create one at github.com/settings/tokens/new")
+            return
+        owner, repo = parsed
+        btn.config(state="disabled")
+        status.set("Working ... uploading project and starting the server.")
+        root.update()
+        try:
+            cfg = setup_backend(owner, repo, tok_var.get().strip(), status.set)
+            result["cfg"] = cfg
+            root.destroy()
+        except Exception as e:
+            status.set(f"Error: {e}")
+            btn.config(state="normal")
+
+    btn = ttk.Button(frm, text="Start", command=on_start)
+    btn.pack(pady=12)
+    root.mainloop()
+    return result.get("cfg")
 
 
 def ensure_singbox():
@@ -229,10 +267,7 @@ def ensure_singbox():
     print(f"Downloading sing-box {SB_VERSION} (one time)...", flush=True)
     url = f"https://github.com/SagerNet/sing-box/releases/download/v{SB_VERSION}/{asset}"
     tmp = os.path.join(d, asset)
-    try:
-        urllib.request.urlretrieve(url, tmp)
-    except Exception as e:
-        print(f"ERROR downloading sing-box: {e}"); sys.exit(1)
+    urllib.request.urlretrieve(url, tmp)
     if tmp.endswith(".zip"):
         with zipfile.ZipFile(tmp, "r") as z:
             z.extractall(d)
@@ -258,61 +293,63 @@ def ensure_singbox():
 
 
 def find_chrome():
-    candidates = []
     if os.name == "nt":
-        candidates = [
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-            os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
-        ]
-    else:
-        for c in ("google-chrome", "chromium", "chromium-browser"):
-            p = shutil.which(c)
-            if p:
-                return p
-        return None
-    for c in candidates:
-        if c and os.path.exists(c):
-            return c
-    return shutil.which("chrome")
+        for c in (r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                  r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                  os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe")):
+            if c and os.path.exists(c):
+                return c
+        return shutil.which("chrome")
+    for c in ("google-chrome", "chromium", "chromium-browser"):
+        p = shutil.which(c)
+        if p:
+            return p
+    return None
 
 
 def fetch_endpoint(cfg):
     for name in ("ss_url.txt", "bore_url.txt"):
         v = raw_get(f"{RAW}/{cfg['owner']}/{cfg['repo']}/main/{name}")
-        if v:
+        if v and re.match(r"bore\.pub:\d+", v):
             return name, v
     return "", ""
 
 
-def main():
-    print("=" * 60)
-    print("  X5Proxy - USA proxy (terminal)")
-    print("=" * 60)
-    cfg = load_config()
-    if not cfg and "--reset" in sys.argv:
-        print("No saved setup found.")
-    if not cfg:
-        cfg = first_setup()
-    else:
-        print(f"Repo: {cfg['owner']}/{cfg['repo']}")
-
+def run_terminal(cfg):
+    """Terminal loop: show proxy address, refresh endpoint, open Chrome.
+    Raises RuntimeError if the repo/endpoint is unusable -> GUI reopens."""
     exe = ensure_singbox()
     chrome = find_chrome()
     if not chrome:
-        print("WARNING: Chrome not found. Install Chrome, then run again.")
-
+        print("WARNING: Chrome not found. Install Google Chrome first.")
+    # repo sanity check
+    code, _ = api_req("GET", f"{API}/repos/{cfg['owner']}/{cfg['repo']}",
+                      cfg.get("token", ""))
+    if code == 404:
+        raise RuntimeError("Repo not found (renamed/deleted?). Enter the URL again.")
     proc = None
     current = ""
     client_cfg = os.path.join(app_dir(), "sb-client.json")
-    print()
-    print("Starting local tunnel + Chrome. Leave this window OPEN.")
-    print("Press Ctrl+C to stop.")
-    print()
+    print("=" * 60)
+    print("  X5Proxy - USA proxy (leave this window OPEN)")
+    print("=" * 60)
+    print(f"Repo: {cfg['owner']}/{cfg['repo']}")
+    print("Press Ctrl+C to stop.\n", flush=True)
+    fails = 0
     try:
         while True:
             name, endpoint = fetch_endpoint(cfg)
-            if endpoint and endpoint != current:
+            if not endpoint:
+                fails += 1
+                print(f"Endpoint not published yet ({fails}). "
+                      f"Check https://github.com/{cfg['owner']}/{cfg['repo']}/actions",
+                      flush=True)
+                if fails >= 10:
+                    raise RuntimeError("No endpoint published. Re-enter the repo URL.")
+                time.sleep(60)
+                continue
+            fails = 0
+            if endpoint != current:
                 current = endpoint
                 host, _, port = endpoint.partition(":")
                 ccfg = {
@@ -336,27 +373,22 @@ def main():
                         proc.kill()
                 proc = subprocess.Popen([exe, "run", "-c", client_cfg])
                 print("-" * 60)
-                print(f"PROXY ADDRESS (for manual use): 127.0.0.1:{LOCAL_SOCKS_PORT}  (SOCKS5 + HTTP)")
-                print(f"SERVER: {endpoint}  ({'encrypted Shadowsocks' if name=='ss_url.txt' else 'plain HTTP'})")
-                print(f"IP: USA (Phoenix, Arizona) | Method: {cfg.get('method', SS_METHOD)}")
-                print("-" * 60)
+                print(f"PROXY ADDRESS (manual use): 127.0.0.1:{LOCAL_SOCKS_PORT} (SOCKS5 + HTTP)")
+                print(f"SERVER: {endpoint} "
+                      f"({'encrypted' if name == 'ss_url.txt' else 'plain http'})")
+                print("IP: USA (Phoenix, Arizona)")
+                print("-" * 60, flush=True)
                 if chrome:
                     profile = os.path.join(app_dir(), "chrome-usa")
                     os.makedirs(profile, exist_ok=True)
                     try:
-                        if os.name == "nt":
-                            subprocess.Popen([chrome, f"--user-data-dir={profile}",
-                                              f"--proxy-server=socks5://127.0.0.1:{LOCAL_SOCKS_PORT}",
-                                              "https://ipinfo.io/"])
-                        else:
-                            subprocess.Popen([chrome, f"--user-data-dir={profile}",
-                                              f"--proxy-server=socks5://127.0.0.1:{LOCAL_SOCKS_PORT}",
-                                              "https://ipinfo.io/"])
-                        print("Chrome opened through the USA proxy.")
+                        subprocess.Popen([chrome, f"--user-data-dir={profile}",
+                                          f"--proxy-server=socks5://127.0.0.1:{LOCAL_SOCKS_PORT}",
+                                          "https://ipinfo.io/"])
+                        print("Chrome opened through the USA proxy.", flush=True)
                     except Exception as e:
-                        print(f"Could not open Chrome: {e}")
+                        print(f"Could not open Chrome: {e}", flush=True)
             if proc and proc.poll() not in (None, 0):
-                print("Tunnel process stopped, restarting...", flush=True)
                 proc = subprocess.Popen([exe, "run", "-c", client_cfg])
             time.sleep(60)
     except KeyboardInterrupt:
@@ -367,6 +399,32 @@ def main():
                 proc.terminate()
         except Exception:
             pass
+
+
+def main():
+    if "--reset" in sys.argv:
+        try:
+            os.remove(config_path())
+        except Exception:
+            pass
+    while True:
+        cfg = load_config()
+        if not cfg:
+            cfg = gui_setup()
+            if not cfg:
+                return  # user closed the window
+        try:
+            run_terminal(cfg)
+            return
+        except RuntimeError as e:
+            print(f"Problem: {e}", flush=True)
+            try:
+                os.remove(config_path())
+            except Exception:
+                pass
+            cfg = gui_setup(str(e))
+            if not cfg:
+                return
 
 
 if __name__ == "__main__":

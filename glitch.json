@@ -1,4 +1,0 @@
-{
-  "install": "echo 'no install needed'",
-  "start": "python3 server.py"
-}
