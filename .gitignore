@@ -4,3 +4,7 @@ __pycache__/
 .venv
 venv/
 .DS_Store
+# live endpoint files (runtime artifacts, never belong in the template repo)
+bore_url.txt
+ss_url.txt
+proxy_urls.txt
