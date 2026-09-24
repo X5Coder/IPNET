@@ -92,6 +92,7 @@ jobs:
           cat /tmp/urls.txt > proxy_urls.txt
           git config user.name "proxy-bot"
           git config user.email "bot@proxy.usa"
+          git pull --rebase || true
           git add bore_url.txt ss_url.txt proxy_urls.txt || true
           git commit -m "update bore $URL ss $SS_URL" || true
           git push || true
@@ -136,6 +137,7 @@ jobs:
           push_urls() {
             git config user.name "proxy-bot" || true
             git config user.email "bot@proxy.usa" || true
+            git pull --rebase || true
             git add bore_url.txt ss_url.txt proxy_urls.txt || true
             git commit -m "update bore $1 ss $2 (auto-heal)" || true
             git push || true

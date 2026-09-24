@@ -342,6 +342,54 @@ def free_local_port():
     time.sleep(2)
 
 
+def endpoint_reachable(endpoint, timeout=10):
+    import socket
+    try:
+        host, _, port = endpoint.partition(":")
+        s = socket.create_connection((host.strip(), int(port)), timeout=timeout)
+        s.close()
+        return True
+    except Exception:
+        return False
+
+
+def cancel_stuck_runs(cfg):
+    """Cancel any in-progress proxy runs so a fresh one can take over."""
+    try:
+        code, data = api_req(
+            "GET",
+            f"{API}/repos/{cfg['owner']}/{cfg['repo']}"
+            "/actions/workflows/proxy.yml/runs?status=in_progress&per_page=5",
+            cfg.get("token", ""))
+        if code != 200:
+            return 0
+        n = 0
+        for r in (data.get("workflow_runs") or []):
+            rc, _ = api_req("POST",
+                            f"{API}/repos/{cfg['owner']}/{cfg['repo']}"
+                            f"/actions/runs/{r['id']}/cancel",
+                            cfg.get("token", ""))
+            if rc in (202, 204):
+                n += 1
+        return n
+    except Exception:
+        return 0
+
+
+def request_fresh_server(cfg, log=print):
+    """Ask GitHub for a brand-new server run. Returns True if accepted."""
+    cancel_stuck_runs(cfg)
+    code, data = api_req(
+        "POST",
+        f"{API}/repos/{cfg['owner']}/{cfg['repo']}/actions/workflows/proxy.yml/dispatches",
+        cfg.get("token", ""), {"ref": "main"})
+    if code in (201, 204):
+        log("Fresh server requested. Waiting for the new endpoint ...")
+        return True
+    log(f"Could not request a fresh server (HTTP {code}). Will retry later.")
+    return False
+
+
 def run_terminal(cfg):
     """Terminal loop: show proxy address, refresh endpoint, open Chrome.
     Raises RuntimeError if the repo/endpoint is unusable -> GUI reopens."""
@@ -357,6 +405,8 @@ def run_terminal(cfg):
         raise RuntimeError("Repo not found (renamed/deleted?). Enter the URL again.")
     proc = None
     current = ""
+    dead = 0
+    last_heal = 0
     client_cfg = os.path.join(app_dir(), "sb-client.json")
     print("=" * 60)
     print("  X5Proxy - USA proxy (leave this window OPEN)")
@@ -418,6 +468,26 @@ def run_terminal(cfg):
                         print(f"Could not open Chrome: {e}", flush=True)
             if proc and proc.poll() not in (None, 0):
                 proc = subprocess.Popen([exe, "run", "-c", client_cfg])
+            # --- client-side healing: is the tunnel actually reachable? ---
+            if current and endpoint_reachable(current):
+                if dead:
+                    print("Tunnel is reachable again.", flush=True)
+                dead = 0
+            elif current:
+                dead += 1
+                print(f"Tunnel unreachable ({dead}/3).", flush=True)
+                if dead >= 3 and time.time() - last_heal > 900:
+                    last_heal = time.time()
+                    dead = 0
+                    print("Requesting a fresh USA server ...", flush=True)
+                    if request_fresh_server(cfg):
+                        # wait until a DIFFERENT endpoint is published
+                        for _ in range(48):
+                            time.sleep(15)
+                            _, fresh = fetch_endpoint(cfg)
+                            if fresh and fresh != current:
+                                print(f"New endpoint: {fresh}", flush=True)
+                                break
             time.sleep(60)
     except KeyboardInterrupt:
         print("\nStopping...")
