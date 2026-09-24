@@ -1,11 +1,11 @@
-# X5Proxy — USA proxy in one click
+# IPNET — USA proxy in one click
 
-Download **`X5Proxy.exe`** from [Releases](../../releases) and double-click it. That is all most users need.
+Download **`IPNET.exe`** from [Releases](../../releases) and double-click it. That is all most users need.
 
 ## How it works (one time, ~5 minutes, no tokens)
 
 1. Create a free GitHub account: https://github.com/signup
-2. Open `X5Proxy.exe`, type a name for your proxy repo, press **Start**.
+2. Open `IPNET.exe`, type a name for your proxy repo, press **Start**.
 3. A browser tab opens — click **Authorize** on GitHub.
 
 The app then automatically: creates the public repo, uploads the server
@@ -15,7 +15,7 @@ server), waits for the encrypted endpoint, starts the local tunnel and opens
 
 ## Every day use
 
-- Double-click `X5Proxy.exe`.
+- Double-click `IPNET.exe`.
 - A terminal window shows the proxy address, for example:
   ```
   PROXY ADDRESS (manual use): 127.0.0.1:1080 (SOCKS5 + HTTP)
@@ -35,25 +35,26 @@ server), waits for the encrypted endpoint, starts the local tunnel and opens
 On first launch Windows may say "Unknown publisher" because the EXE is not
 code-signed (a certificate costs money). It is safe: press **More info** →
 **Run anyway**. The source is public in this repo and you can build the EXE
-yourself with `python -m PyInstaller --onefile --console --name X5Proxy x5proxy.py`.
+yourself with `python -m PyInstaller --onefile --console --name IPNET x5proxy.py`.
 
 ## Why encrypted?
 
 Some ISPs block plain proxy `CONNECT` requests, so HTTPS fails while HTTP works.
-X5Proxy uses **Shadowsocks (aes-256-gcm)** — all traffic is encrypted, nothing to block.
+IPNET uses **Shadowsocks (aes-256-gcm)** — all traffic is encrypted, nothing to block.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `x5proxy.py` | The desktop app (built to `X5Proxy.exe`) |
+| `x5proxy.py` | The desktop app (built to `IPNET.exe`) |
 | `server.py` | USA forward proxy (HTTP + HTTPS/CONNECT) |
 | `singbox-server.json` | Encrypted Shadowsocks server config |
 | `.github/workflows/proxy.yml` | GitHub Action: runs both, exposes via bore, self-heals |
+| `ipnet.svg` / `ipnet.ico` / `ipnet.png` | App icon (source + Windows + window) |
 | `ss-client-template.json` | Manual client example |
 
 ## Notes
 
 - The Action runs up to 5 hours, then restarts by schedule. The app follows new endpoints automatically.
-- Your password is generated per repo and stored only in your repo + your PC (`%APPDATA%/X5Proxy/config.json`).
+- Your password is generated per repo and stored only in your repo + your PC (`%APPDATA%/X5Proxy/config.json`, shown in the setup window).
 - `bore_url.txt` / `ss_url.txt` / `proxy_urls.txt` are auto-published by the Action — that is how the app finds the current endpoint.

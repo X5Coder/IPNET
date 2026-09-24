@@ -25,8 +25,6 @@ DISABLE_AUTH = os.environ.get("DISABLE_AUTH", "false").lower() == "true"
 BUFFER_SIZE = 131072  # 128KB for high speed
 CONN_TIMEOUT = 15
 MAX_CONNECTIONS = 512
-# Simple rate limit: max requests per IP per minute (anti-abuse)
-RATE_LIMIT = int(os.environ.get("RATE_LIMIT", "120"))
 
 HTML_STATUS = """HTTP/1.1 200 OK\r
 Content-Type: text/html; charset=utf-8\r
@@ -104,30 +102,6 @@ def set_fast(sock):
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, BUFFER_SIZE)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, BUFFER_SIZE)
-    except:
-        pass
-
-def _pipe(src, dst):
-    """One direction, blocking - with idle timeout so threads don't leak."""
-    try:
-        while True:
-            try:
-                data = src.recv(BUFFER_SIZE)
-            except socket.timeout:
-                break
-            if not data:
-                break
-            dst.sendall(data)
-    except:
-        pass
-    try:
-        try:
-            dst.shutdown(socket.SHUT_WR)
-        except:
-            try:
-                dst.close()
-            except:
-                pass
     except:
         pass
 

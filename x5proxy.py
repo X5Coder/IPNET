@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-X5Proxy - one-click USA proxy.
+IPNET - one-click USA proxy.
 Single EXE distributed via GitHub Releases.
 
 First launch: a very simple window explains (in English) what to do:
@@ -32,7 +32,8 @@ import urllib.request
 import urllib.error
 import zipfile
 
-APP_NAME = "X5Proxy"
+APP_NAME = "IPNET"
+APP_VERSION = "v1"
 CANONICAL_REPO = "X5Coder/proxy-usa"  # templates are downloaded from here
 PROJECT_FILES = [
     "server.py",
@@ -46,7 +47,6 @@ RAW = "https://raw.githubusercontent.com"
 SB_VERSION = "1.14.2"
 GH_VERSION = "2.101.0"
 SS_METHOD = "aes-256-gcm"
-DEFAULT_SS_PASSWORD = "X5_Secure_2026!Strong"
 LOCAL_SOCKS_PORT = 1080
 
 
@@ -62,6 +62,29 @@ def app_dir():
 
 def config_path():
     return os.path.join(app_dir(), "config.json")
+
+
+def resource_path(name):
+    """Find bundled asset (works in dev and in PyInstaller EXE)."""
+    base = getattr(sys, "_MEIPASS", None)
+    if base and os.path.exists(os.path.join(base, name)):
+        return os.path.join(base, name)
+    here = os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
+    if os.path.exists(here):
+        return here
+    return ""
+
+
+def bin_dir():
+    d = os.path.join(app_dir(), "bin")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def profile_dir():
+    d = os.path.join(app_dir(), "chrome-usa")
+    os.makedirs(d, exist_ok=True)
+    return d
 
 
 def load_config():
@@ -246,14 +269,19 @@ def setup_backend(repo_name, log):
     owner = gh_username(token)
     if not owner:
         raise RuntimeError("Could not read GitHub username. Try again.")
-    repo = re.sub(r"[^A-Za-z0-9_.-]", "-", (repo_name or "my-usa-proxy").strip()) or "my-usa-proxy"
+    parsed = parse_repo_url(repo_name or "")
+    if parsed:
+        # user pasted a repo URL: use its repo name (must belong to them)
+        repo = parsed[1]
+    else:
+        repo = re.sub(r"[^A-Za-z0-9_.-]", "-", (repo_name or "my-usa-proxy").strip()) or "my-usa-proxy"
     log(f"Checking {owner}/{repo} ...")
     code, _ = api_req("GET", f"{API}/repos/{owner}/{repo}", token)
     if code == 404:
         log(f"Creating public repo {repo} ...")
         code, _ = api_req("POST", f"{API}/user/repos", token,
                           {"name": repo, "private": False,
-                           "description": "My private USA proxy (X5Proxy)"})
+                           "description": "My private USA proxy (IPNET)"})
         if code not in (200, 201):
             raise RuntimeError("Could not create the repo. Create it manually at "
                                "https://github.com/new (Public, empty).")
@@ -297,48 +325,85 @@ def setup_backend(repo_name, log):
 
 
 def gui_setup(error_msg=""):
-    """Very simple setup window. Returns cfg or None if closed."""
+    """IPNET setup window: custom design, copyable text. Returns cfg or None."""
     import tkinter as tk
-    from tkinter import ttk
     result = {}
 
+    BG, CARD, ACCENT, TEXT, MUTED = "#0f172a", "#1e293b", "#38bdf8", "#e2e8f0", "#94a3b8"
+
     root = tk.Tk()
-    root.title("X5Proxy - Setup (one time)")
-    root.geometry("520x480")
+    root.title(f"{APP_NAME} {APP_VERSION} - Setup (one time)")
+    root.geometry("560x640")
     root.resizable(False, False)
+    root.configure(bg=BG)
+    for p in (resource_path("ipnet.ico"), resource_path("ipnet.png")):
+        if p:
+            try:
+                if p.endswith(".ico"):
+                    root.iconbitmap(p)
+                else:
+                    _img = tk.PhotoImage(file=p)
+                    root.iconphoto(True, _img)
+                    root._icon_ref = _img
+                break
+            except Exception:
+                continue
 
-    frm = ttk.Frame(root, padding=16)
-    frm.pack(fill="both", expand=True)
+    def label(parent, text, size=10, bold=False, fg=TEXT, anchor="w"):
+        w = tk.Label(parent, text=text, bg=BG, fg=fg, anchor=anchor,
+                     justify="left", font=("Segoe UI", size, "bold" if bold else "normal"))
+        w.pack(anchor="w", fill="x")
+        return w
 
-    ttk.Label(frm, text="X5Proxy - USA proxy in one click",
-              font=("Segoe UI", 13, "bold")).pack(anchor="w")
-    ttk.Label(frm, text="No tokens, no manual upload. Just:",
-              font=("Segoe UI", 10)).pack(anchor="w", pady=(6, 4))
-    steps = ("1. Create a free GitHub account (once):\n"
-             "     https://github.com/signup\n\n"
-             "2. Type a name for your proxy repo below.\n\n"
-             "3. Press Start: a browser tab opens,\n"
-             "     click Authorize, and the app does the rest:\n"
-             "     creates the repo, uploads everything,\n"
-             "     starts the USA server automatically.")
-    ttk.Label(frm, text=steps, font=("Segoe UI", 9),
-              justify="left").pack(anchor="w")
+    def copyable(parent, text):
+        """Selectable + copyable line (Ctrl+C works)."""
+        e = tk.Entry(parent, bg=CARD, fg=ACCENT, relief="flat",
+                     font=("Consolas", 8), insertbackground=ACCENT)
+        e.insert(0, text)
+        e.config(state="readonly")
+        e.pack(fill="x", pady=1)
+        return e
 
-    ttk.Label(frm, text="Repo name:", font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(10, 0))
+    head = tk.Frame(root, bg=BG)
+    head.pack(fill="x", padx=18, pady=(14, 0))
+    try:
+        _logo = tk.PhotoImage(file=resource_path("ipnet.png")).subsample(4, 4)
+        tk.Label(head, image=_logo, bg=BG).pack(side="left", padx=(0, 10))
+        root._logo_ref = _logo
+    except Exception:
+        pass
+    tk.Label(head, text=f"{APP_NAME}  {APP_VERSION}", bg=BG, fg=TEXT,
+             font=("Segoe UI", 16, "bold")).pack(side="left")
+    label(head, "USA proxy in one click", size=9, fg=MUTED)
+
+    body = tk.Frame(root, bg=BG)
+    body.pack(fill="both", expand=True, padx=18, pady=10)
+
+    label(body, "1. Create a free GitHub account (once):", bold=True)
+    copyable(body, "https://github.com/signup")
+    label(body, "2. Type a repo name OR paste a repo URL below.", bold=True)
     repo_var = tk.StringVar(value="my-usa-proxy")
-    ttk.Entry(frm, textvariable=repo_var, width=60).pack(fill="x")
+    tk.Entry(body, textvariable=repo_var, bg=CARD, fg=TEXT, relief="flat",
+             font=("Segoe UI", 10), insertbackground=ACCENT).pack(fill="x", pady=(2, 6))
+    label(body, "3. Press Start, click Authorize in the browser.", bold=True)
+    label(body, "The app then creates the repo, uploads everything and starts the USA server — fully automatic.", size=9, fg=MUTED)
+
+    label(body, "Storage on this PC (select + Ctrl+C to copy):", size=9, bold=True, fg=MUTED)
+    copyable(body, f"Settings:  {config_path()}")
+    copyable(body, f"Chrome USA profile:  {profile_dir()}")
+    copyable(body, f"Helpers (gh, sing-box):  {bin_dir()}")
 
     status = tk.StringVar(value=error_msg)
-    ttk.Label(frm, textvariable=status, font=("Segoe UI", 9),
-              foreground="red", wraplength=480).pack(anchor="w", pady=(8, 0))
+    tk.Label(body, textvariable=status, bg=BG, fg="#f87171", wraplength=520,
+             justify="left", font=("Segoe UI", 9)).pack(anchor="w", pady=(6, 0))
 
     def on_start():
         name = (repo_var.get() or "").strip()
         if not name:
-            status.set("Type a repo name, e.g. my-usa-proxy")
+            status.set("Type a repo name (my-usa-proxy) or paste a repo URL.")
             return
         btn.config(state="disabled")
-        status.set("Working ... browser login, then full auto setup.")
+        status.set("Working ... browser login, then full auto setup.\nCheck the black terminal window too.")
         root.update()
         try:
             cfg = setup_backend(name, status.set)
@@ -348,8 +413,10 @@ def gui_setup(error_msg=""):
             status.set(f"Error: {e}")
             btn.config(state="normal")
 
-    btn = ttk.Button(frm, text="Start", command=on_start)
-    btn.pack(pady=12)
+    btn = tk.Button(body, text="Start", command=on_start, bg=ACCENT, fg="#0f172a",
+                    activebackground="#7dd3fc", relief="flat",
+                    font=("Segoe UI", 11, "bold"), padx=30, pady=6)
+    btn.pack(pady=10)
     root.mainloop()
     return result.get("cfg")
 
@@ -578,7 +645,7 @@ def run_terminal(cfg):
     last_heal = 0
     client_cfg = os.path.join(app_dir(), "sb-client.json")
     print("=" * 60)
-    print("  X5Proxy - USA proxy (leave this window OPEN)")
+    print(f"  {APP_NAME} {APP_VERSION} - USA proxy (leave this window OPEN)")
     print("=" * 60)
     print(f"Repo: {cfg['owner']}/{cfg['repo']}")
     print("Press Ctrl+C to stop.\n", flush=True)
