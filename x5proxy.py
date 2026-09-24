@@ -1204,7 +1204,13 @@ def restart_fresh():
     """Relaunch a clean copy of this app, then exit (used after setup)."""
     try:
         args = [a for a in sys.argv[1:] if a != "--reset"]
-        subprocess.Popen([sys.executable] + args)
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable] + args  # PyInstaller EXE relaunches itself
+        else:
+            # source mode: must pass the script path, a bare python.exe
+            # would open an empty interpreter and the app never comes back
+            cmd = [sys.executable, os.path.abspath(__file__)] + args
+        subprocess.Popen(cmd)
     except Exception as e:
         slog(f"Auto-restart failed ({e}). Please open the app again.",
               flush=True)
