@@ -1,0 +1,53 @@
+name: test bore loopback
+on: workflow_dispatch
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start proxy
+        run: |
+          PORT=8080 PROXY_USER=x5coder PROXY_PASS=X5_Secure_2026!Strong python3 server.py > /tmp/proxy.log 2>&1 &
+          sleep 3
+          curl -s http://127.0.0.1:8080/health | grep -q Proxy && echo "health ok"
+      - name: Install bore
+        run: |
+          curl -sL https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-gnu.tar.gz -o /tmp/bore.tar.gz || true
+          if tar tzf /tmp/bore.tar.gz >/dev/null 2>&1; then tar xz -f /tmp/bore.tar.gz -C /tmp && chmod +x /tmp/bore; else cargo install bore-cli --locked && cp ~/.cargo/bin/bore /tmp/bore; fi
+          /tmp/bore --version
+      - name: Tunnel bore.pub
+        run: |
+          /tmp/bore local 8080 --to bore.pub > /tmp/bore1.log 2>&1 &
+          sleep 8
+          cat /tmp/bore1.log
+          grep -oE "bore\.pub:[0-9]+" /tmp/bore1.log | head -1 > /tmp/url1.txt || echo "PUB_FAIL" > /tmp/url1.txt
+          echo "URL1=$(cat /tmp/url1.txt)"
+      - name: Tunnel bore.ec
+        run: |
+          /tmp/bore local 8080 --to bore.ec > /tmp/bore2.log 2>&1 &
+          sleep 8
+          cat /tmp/bore2.log
+          grep -oE "bore\.ec:[0-9]+" /tmp/bore2.log | head -1 > /tmp/url2.txt || echo "EC_FAIL" > /tmp/url2.txt
+          echo "URL2=$(cat /tmp/url2.txt)"
+      - name: Test via public URLs (loopback through bore servers)
+        run: |
+          U1=$(cat /tmp/url1.txt); U2=$(cat /tmp/url2.txt)
+          echo "===== URL1=$U1 ====="
+          if [ "$U1" != "PUB_FAIL" ]; then
+            echo "--- http via U1 ---"
+            curl -s --max-time 15 -x http://x5coder:X5_Secure_2026!Strong@$U1 http://httpbin.org/ip || echo HTTP1_FAIL
+            echo "--- https via U1 ---"
+            curl -s --max-time 25 -x http://x5coder:X5_Secure_2026!Strong@$U1 https://httpbin.org/ip || echo HTTPS1_FAIL
+          fi
+          echo "===== URL2=$U2 ====="
+          if [ "$U2" != "EC_FAIL" ]; then
+            echo "--- http via U2 ---"
+            curl -s --max-time 15 -x http://x5coder:X5_Secure_2026!Strong@$U2 http://httpbin.org/ip || echo HTTP2_FAIL
+            echo "--- https via U2 ---"
+            curl -s --max-time 25 -x http://x5coder:X5_Secure_2026!Strong@$U2 https://httpbin.org/ip || echo HTTPS2_FAIL
+          fi
+      - name: Dump proxy log
+        run: |
+          echo "===== PROXY LOG ====="
+          cat /tmp/proxy.log
