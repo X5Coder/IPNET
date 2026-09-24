@@ -1,0 +1,53 @@
+name: USA Proxy (GitHub Actions + bore)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # كل 5 ساعات - يرجع يشتغل تلقائي لو فصل (Actions حدها 6 ساعات)
+    - cron: '0 */5 * * *'
+  push:
+    branches: [main]
+    paths: ['.github/workflows/proxy.yml']
+
+jobs:
+  proxy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300  # 5 ساعات
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start proxy
+        run: |
+          echo "Starting proxy on 0.0.0.0:8080 ..."
+          PORT=8080 PROXY_USER=x5coder PROXY_PASS=X5_Secure_2026!Strong python3 server.py > /tmp/proxy.log 2>&1 &
+          sleep 3
+          cat /tmp/proxy.log
+          curl -s http://127.0.0.1:8080/health | head -5
+          echo "Proxy ready"
+
+      - name: Install bore
+        run: |
+          curl -sL https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-gnu.tar.gz | tar xz -C /tmp
+          chmod +x /tmp/bore
+          /tmp/bore --version
+
+      - name: Start bore tunnel (raw TCP - supports CONNECT)
+        run: |
+          echo "Starting bore tunnel ..."
+          /tmp/bore local 8080 --to bore.pub > /tmp/bore.log 2>&1 &
+          sleep 8
+          cat /tmp/bore.log
+          echo "=== BORE URL ==="
+          grep -oE "bore\.pub:[0-9]+" /tmp/bore.log || cat /tmp/bore.log
+          echo "Keep alive for 5 hours ..."
+
+      - name: Keep alive
+        run: |
+          # يفضل شغال 5 ساعات - يطبع الرابط كل دقيقة
+          for i in $(seq 1 300); do
+            echo "[$i/300] $(date) - proxy alive"
+            cat /tmp/bore.log | grep -oE "bore\.pub:[0-9]+" || echo "waiting bore..."
+            curl -s http://127.0.0.1:8080/health | grep -q "Proxy" && echo "health ok" || echo "health fail"
+            sleep 60
+          done
