@@ -393,6 +393,17 @@ def gui_setup(error_msg=""):
     from tkinter import filedialog
     result = {}
 
+    # DPI awareness: without this Windows bitmap-scales the window (blurry)
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        try:
+            import ctypes
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
     PAPER, INK, MUTED, HAIR, FIELD, CTA, CTA_HOVER, ERR_BG, ERR_TX = (
         "#FBFBFA", "#111111", "#787774", "#EAEAEA", "#FFFFFF",
         "#111111", "#333333", "#FDEBEC", "#9F2F2D")
