@@ -417,8 +417,20 @@ def gui_setup(error_msg=""):
 
     wrap = tk.Frame(root, bg=PAPER)
     wrap.pack(fill="both", expand=True)
-    canvas = tk.Canvas(wrap, bg=PAPER, highlightthickness=0)
-    scroll = tk.Scrollbar(wrap, orient="vertical", command=canvas.yview)
+    from tkinter import ttk as _ttk
+    _style = _ttk.Style()
+    try:
+        _style.theme_use("clam")
+    except Exception:
+        pass
+    _style.configure("IPNET.Vertical.TScrollbar", background=PAPER,
+                     troughcolor=PAPER, bordercolor=PAPER,
+                     arrowcolor=MUTED, gripcount=0)
+    _style.map("IPNET.Vertical.TScrollbar", background=[("active", HAIR)])
+    canvas = tk.Canvas(wrap, bg=PAPER, highlightthickness=0, borderwidth=0)
+    scroll = _ttk.Scrollbar(wrap, orient="vertical",
+                            command=canvas.yview,
+                            style="IPNET.Vertical.TScrollbar")
     canvas.configure(yscrollcommand=scroll.set)
     scroll.pack(side="right", fill="y")
     canvas.pack(side="left", fill="both", expand=True)
@@ -492,11 +504,11 @@ def gui_setup(error_msg=""):
 
     tk.Label(wrap, text="3  —  Storage folder", bg=PAPER, fg=INK,
              font=("Segoe UI", 10, "bold")).pack(anchor="w")
-    tk.Label(wrap, text="Leave empty for the default, or Browse to choose.",
+    tk.Label(wrap, text="Leave it, or Browse to choose another folder.",
              bg=PAPER, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 2))
     row = tk.Frame(wrap, bg=PAPER)
     row.pack(fill="x", pady=3)
-    path_var = tk.StringVar(value="")
+    path_var = tk.StringVar(value=get_data_dir())
     tk.Entry(row, textvariable=path_var, bg=FIELD, fg=INK, relief="solid",
              borderwidth=1, font=("Consolas", 8),
              insertbackground=INK).pack(side="left", fill="x", expand=True,
