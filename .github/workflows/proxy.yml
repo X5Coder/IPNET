@@ -9,6 +9,9 @@ on:
     branches: [main]
     paths: ['.github/workflows/proxy.yml']
 
+permissions:
+  contents: write
+
 jobs:
   proxy:
     runs-on: ubuntu-latest
