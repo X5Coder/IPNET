@@ -416,6 +416,28 @@ def gui_setup(error_msg=""):
                 continue
 
     wrap = tk.Frame(root, bg=PAPER)
+    wrap.pack(fill="both", expand=True)
+    canvas = tk.Canvas(wrap, bg=PAPER, highlightthickness=0)
+    scroll = tk.Scrollbar(wrap, orient="vertical", command=canvas.yview)
+    canvas.configure(yscrollcommand=scroll.set)
+    scroll.pack(side="right", fill="y")
+    canvas.pack(side="left", fill="both", expand=True)
+    body = tk.Frame(canvas, bg=PAPER)
+    canvas.create_window((0, 0), window=body, anchor="nw", width=560)
+
+    def _sync_scroll(_evt=None):
+        canvas.configure(scrollregion=canvas.bbox("all"))
+
+    body.bind("<Configure>", _sync_scroll)
+
+    def _wheel(evt):
+        canvas.yview_scroll(-1 if evt.delta > 0 else 1, "units")
+
+    canvas.bind_all("<MouseWheel>", _wheel)
+    root.protocol("WM_DELETE_WINDOW", lambda: (canvas.unbind_all("<MouseWheel>"),
+                                               root.destroy()))
+
+    wrap = tk.Frame(body, bg=PAPER)  # content parent (scrolls)
     wrap.pack(fill="both", expand=True, padx=40, pady=28)
 
     # wordmark row: logo + tight-tracked name + version tag
@@ -459,7 +481,9 @@ def gui_setup(error_msg=""):
 
     tk.Label(wrap, text="2  —  Repo name or URL", bg=PAPER, fg=INK,
              font=("Segoe UI", 10, "bold")).pack(anchor="w")
-    repo_var = tk.StringVar(value="my-usa-proxy")
+    tk.Label(wrap, text="Example: my-usa-proxy  or  https://github.com/YOU/my-usa-proxy",
+             bg=PAPER, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 2))
+    repo_var = tk.StringVar(value="")
     tk.Entry(wrap, textvariable=repo_var, bg=FIELD, fg=INK, relief="solid",
              borderwidth=1, highlightthickness=1, highlightcolor=INK,
              highlightbackground=HAIR, font=("Segoe UI", 10),
@@ -468,11 +492,11 @@ def gui_setup(error_msg=""):
 
     tk.Label(wrap, text="3  —  Storage folder", bg=PAPER, fg=INK,
              font=("Segoe UI", 10, "bold")).pack(anchor="w")
-    tk.Label(wrap, text="Settings, Chrome profile and helpers live here.",
+    tk.Label(wrap, text="Leave empty for the default, or Browse to choose.",
              bg=PAPER, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 2))
     row = tk.Frame(wrap, bg=PAPER)
     row.pack(fill="x", pady=3)
-    path_var = tk.StringVar(value=get_data_dir())
+    path_var = tk.StringVar(value="")
     tk.Entry(row, textvariable=path_var, bg=FIELD, fg=INK, relief="solid",
              borderwidth=1, font=("Consolas", 8),
              insertbackground=INK).pack(side="left", fill="x", expand=True,
@@ -480,7 +504,7 @@ def gui_setup(error_msg=""):
 
     def on_browse():
         d = filedialog.askdirectory(title="IPNET storage folder",
-                                    initialdir=path_var.get())
+                                    initialdir=path_var.get() or get_data_dir())
         if d:
             path_var.set(d)
 
@@ -499,7 +523,7 @@ def gui_setup(error_msg=""):
 
     from tkinter import ttk
     pb = ttk.Progressbar(wrap, mode="indeterminate", length=520)
-    pb.pack(fill="x", pady=(0, 4))
+    # hidden until Start is pressed
 
     # solid CTA: #111111, radius 6, hover #333333, press shrinks
     pad = tk.Frame(wrap, bg=PAPER)
@@ -537,10 +561,7 @@ def gui_setup(error_msg=""):
         if not name:
             status.set("Type a repo name (my-usa-proxy) or paste a repo URL.")
             return
-        d = (path_var.get() or "").strip()
-        if not d:
-            status.set("Choose a storage folder first.")
-            return
+        d = (path_var.get() or "").strip() or get_data_dir()
         enabled["v"] = False
         draw_btn("#9ca3af")
         try:
@@ -551,6 +572,7 @@ def gui_setup(error_msg=""):
             draw_btn(CTA)
             return
         status.set("Working ... browser login, then full auto setup. Check the terminal window too.")
+        pb.pack(fill="x", pady=(0, 4))
         pb.start(12)
 
         def log(msg):
@@ -572,6 +594,7 @@ def gui_setup(error_msg=""):
             root.destroy()
         except Exception as e:
             pb.stop()
+            pb.pack_forget()
             status.set(f"Error: {e}")
             enabled["v"] = True
             draw_btn(CTA)
