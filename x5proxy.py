@@ -51,6 +51,15 @@ SS_METHOD = "aes-256-gcm"
 LOCAL_SOCKS_PORT = 1080
 
 
+def slog(*args, **kwargs):
+    """print() that never kills the app: with no live console (odd launch,
+    broken pipe) stdout writes raise OSError - swallow it and keep running."""
+    try:
+        print(*args, **kwargs)
+    except OSError:
+        pass
+
+
 def _default_data_dir():
     if os.name == "nt":
         base = os.environ.get("APPDATA") or os.path.expanduser("~")
@@ -171,7 +180,7 @@ def gh_bin():
     return os.path.join(d, "gh")
 
 
-def ensure_gh(log=print):
+def ensure_gh(log=slog):
     """Download GitHub CLI once. Returns path to gh binary."""
     exe = gh_bin()
     if os.path.exists(exe):
@@ -224,13 +233,13 @@ def gh_logged_in():
 
 def gh_login_flow():
     """Browser login: user only clicks in GitHub, no token to copy."""
-    print("Opening GitHub login in your browser ...", flush=True)
-    print("Click Authorize, then return here.", flush=True)
+    slog("Opening GitHub login in your browser ...", flush=True)
+    slog("Click Authorize, then return here.", flush=True)
     rc = subprocess.call([gh_bin(), "auth", "login", "--web",
                           "--skip-ssh-key"])
     if rc != 0 or not gh_logged_in():
         raise RuntimeError("GitHub login did not complete. Try again.")
-    print("GitHub login OK.", flush=True)
+    slog("GitHub login OK.", flush=True)
 
 
 def gh_token():
@@ -800,7 +809,7 @@ def ensure_singbox():
         asset = f"sing-box-{SB_VERSION}-linux-amd64.tar.gz"
     if os.path.exists(exe):
         return exe
-    print(f"Downloading sing-box {SB_VERSION} (one time)...", flush=True)
+    slog(f"Downloading sing-box {SB_VERSION} (one time)...", flush=True)
     url = f"https://github.com/SagerNet/sing-box/releases/download/v{SB_VERSION}/{asset}"
     tmp = os.path.join(d, asset)
     urllib.request.urlretrieve(url, tmp)
@@ -963,7 +972,7 @@ def cancel_stuck_runs(cfg):
         return 0
 
 
-def request_fresh_server(cfg, log=print):
+def request_fresh_server(cfg, log=slog):
     """Ask GitHub for a brand-new server run. Returns True if accepted."""
     token = api_token(cfg)
     if not token:
@@ -988,10 +997,10 @@ def wait_for_new_endpoint(cfg, current):
         time.sleep(15)
         _, fresh = fetch_endpoint(cfg)
         if fresh and fresh != current:
-            print(f"New endpoint: {fresh}", flush=True)
+            slog(f"New endpoint: {fresh}", flush=True)
             return fresh
         if (_w + 1) % 4 == 0:
-            print(f"... waiting for new server ({(_w + 1) * 15 // 60} min so far)",
+            slog(f"... waiting for new server ({(_w + 1) * 15 // 60} min so far)",
                   flush=True)
     return ""
 
@@ -1044,10 +1053,10 @@ def open_usa_chrome(chrome, url=None):
         if url:
             args.append(url)
         subprocess.Popen(args)
-        print("Chrome opened (USA profile: English, WebRTC leak blocked).",
+        slog("Chrome opened (USA profile: English, WebRTC leak blocked).",
               flush=True)
     except Exception as e:
-        print(f"Could not open Chrome: {e}", flush=True)
+        slog(f"Could not open Chrome: {e}", flush=True)
 
 
 def run_terminal(cfg):
@@ -1057,13 +1066,13 @@ def run_terminal(cfg):
     exe = ensure_singbox()
     chrome = find_chrome()
     if not chrome:
-        print("WARNING: Chrome not found. Install Google Chrome first.")
+        slog("WARNING: Chrome not found. Install Google Chrome first.")
     # keep the tunnel log from growing forever (old ERROR floods)
     try:
         _lp = tunnel_log_path()
         if os.path.exists(_lp) and os.path.getsize(_lp) > 2 * 1024 * 1024:
             open(_lp, "w").close()
-            print("Old tunnel log cleared (>2MB).", flush=True)
+            slog("Old tunnel log cleared (>2MB).", flush=True)
     except Exception:
         pass
     # repo sanity check (needs GitHub session only for healing/dispatch)
@@ -1074,7 +1083,7 @@ def run_terminal(cfg):
         if code == 404:
             raise RuntimeError("Repo not found (renamed/deleted?). Enter it again.")
         if code == 401:
-            print("GitHub session expired - you will be asked to log in again if needed.",
+            slog("GitHub session expired - you will be asked to log in again if needed.",
                   flush=True)
     proc = None
     tun_log = None
@@ -1082,19 +1091,21 @@ def run_terminal(cfg):
     dead = 0
     last_heal = 0
     client_cfg = os.path.join(app_dir(), "sb-client.json")
-    print("=" * 60)
-    print(f"  {APP_NAME} {APP_VERSION} - USA proxy (leave this window OPEN)")
-    print("=" * 60)
-    print(f"Repo: {cfg['owner']}/{cfg['repo']}")
-    print("Press Ctrl+C to stop.\n", flush=True)
+    slog("=" * 60)
+    slog(f"  {APP_NAME} {APP_VERSION} - USA proxy (leave this window OPEN)")
+    slog("=" * 60)
+    slog(f"Repo: {cfg['owner']}/{cfg['repo']}")
+    slog("Press Ctrl+C to stop.\n", flush=True)
     fails = 0
     first_run = True
+    chrome_opened = False  # open Chrome once per process: renewals must
+    # NOT spawn another window while one is already open
     try:
         while True:
             name, endpoint = fetch_endpoint(cfg)
             if not endpoint:
                 fails += 1
-                print(f"Endpoint not published yet ({fails}). "
+                slog(f"Endpoint not published yet ({fails}). "
                       f"Check https://github.com/{cfg['owner']}/{cfg['repo']}/actions",
                       flush=True)
                 if fails >= 10:
@@ -1124,7 +1135,7 @@ def run_terminal(cfg):
                 # heal NOW instead of waiting 3 loop cycles (restart fix).
                 if first_run and not proxy_working():
                     first_run = False
-                    print("Proxy not responding on startup - "
+                    slog("Proxy not responding on startup - "
                           "requesting a fresh server ...", flush=True)
                     if not api_token(cfg):
                         raise RuntimeError(
@@ -1133,33 +1144,37 @@ def run_terminal(cfg):
                         if wait_for_new_endpoint(cfg, current):
                             continue  # reconfigure for the new endpoint
                 first_run = False
-                print("-" * 60)
-                print(f"PROXY ADDRESS (manual use): 127.0.0.1:{LOCAL_SOCKS_PORT} (SOCKS5 + HTTP)")
-                print(f"SERVER: {endpoint} "
+                slog("-" * 60)
+                slog(f"PROXY ADDRESS (manual use): 127.0.0.1:{LOCAL_SOCKS_PORT} (SOCKS5 + HTTP)")
+                slog(f"SERVER: {endpoint} "
                       f"({'encrypted' if name == 'ss_url.txt' else 'plain http'})")
-                print("IP: USA (Phoenix, Arizona)")
-                print("-" * 60, flush=True)
-                if chrome:
+                slog("IP: USA (Phoenix, Arizona)")
+                slog("-" * 60, flush=True)
+                if chrome and not chrome_opened:
+                    chrome_opened = True
                     if not cfg.get("welcomed"):
                         open_usa_chrome(chrome, "https://ipleak.net/")
                         cfg["welcomed"] = True
                         save_config(cfg)
                     else:
                         open_usa_chrome(chrome)
+                elif chrome:
+                    slog("Endpoint renewed - using the already-open Chrome "
+                          "window (no new window).", flush=True)
             if proc and proc.poll() not in (None, 0):
                 stop_tunnel(proc, tun_log)
                 proc, tun_log = start_tunnel(exe, client_cfg)
-                print("Local tunnel restarted.", flush=True)
+                slog("Local tunnel restarted.", flush=True)
             # --- client-side healing: does traffic REALLY flow? ---
             # (TCP to bore.pub is not enough: the tunnel can be up while
             # the server-side proxy refuses everything -> ERROR flood.)
             if current and proxy_working():
                 if dead:
-                    print("Proxy is working again.", flush=True)
+                    slog("Proxy is working again.", flush=True)
                 dead = 0
             elif current:
                 dead += 1
-                print(f"Proxy not responding ({dead}/3) - getting a new one ...",
+                slog(f"Proxy not responding ({dead}/3) - getting a new one ...",
                       flush=True)
                 if dead >= 3 and time.time() - last_heal > 300:
                     last_heal = time.time()
@@ -1167,13 +1182,13 @@ def run_terminal(cfg):
                     if not api_token(cfg):
                         raise RuntimeError(
                             "GitHub session expired. Log in again to heal the server.")
-                    print("Requesting a fresh USA server (takes a few minutes) ...",
+                    slog("Requesting a fresh USA server (takes a few minutes) ...",
                           flush=True)
                     if request_fresh_server(cfg):
                         wait_for_new_endpoint(cfg, current)
             time.sleep(60)
     except KeyboardInterrupt:
-        print("\nStopping...")
+        slog("\nStopping...")
     finally:
         stop_tunnel(proc, tun_log)
 
@@ -1184,7 +1199,7 @@ def restart_fresh():
         args = [a for a in sys.argv[1:] if a != "--reset"]
         subprocess.Popen([sys.executable] + args)
     except Exception as e:
-        print(f"Auto-restart failed ({e}). Please open the app again.",
+        slog(f"Auto-restart failed ({e}). Please open the app again.",
               flush=True)
         return False
     return True
@@ -1203,7 +1218,7 @@ def main():
                 cfg = gui_setup()
                 if not cfg:
                     return  # user closed the window
-                print("Setup complete. Restarting into run mode ...", flush=True)
+                slog("Setup complete. Restarting into run mode ...", flush=True)
                 time.sleep(1)
                 if restart_fresh():
                     return
@@ -1212,7 +1227,7 @@ def main():
                 run_terminal(cfg)
                 return
             except RuntimeError as e:
-                print(f"Problem: {e}", flush=True)
+                slog(f"Problem: {e}", flush=True)
                 try:
                     os.remove(config_path())
                 except Exception:
@@ -1220,16 +1235,19 @@ def main():
                 cfg = gui_setup(str(e))
                 if not cfg:
                     return
-                print("Setup complete. Restarting into run mode ...", flush=True)
+                slog("Setup complete. Restarting into run mode ...", flush=True)
                 time.sleep(1)
                 if restart_fresh():
                     return
     except KeyboardInterrupt:
-        print("\nStopping...")
+        slog("\nStopping...")
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        print(f"\nUnexpected error: {e}", flush=True)
+        try:
+            import traceback
+            traceback.print_exc()
+        except Exception:
+            pass
+        slog(f"\nUnexpected error: {e}", flush=True)
         try:
             input("Press Enter to close ...")
         except Exception:
