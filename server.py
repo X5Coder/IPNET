@@ -174,8 +174,7 @@ def handle_client(client, addr):
         # Direct visits to proxy use: GET / HTTP/1.1
         if method == "GET" and target in ("/", "/health", "/status", "/healthz"):
             host_hdr = headers.get("host", f"localhost:{PORT}")
-            html = HTML_STATUS.format(host=host_hdr, user=PROXY_USER, pwd=PROXY_PASS)
-            # Need to handle chunked? Just send
+            html = HTML_STATUS.replace("{host}", host_hdr).replace("{user}", PROXY_USER).replace("{pwd}", PROXY_PASS)
             client.sendall(html.encode())
             client.close()
             return
