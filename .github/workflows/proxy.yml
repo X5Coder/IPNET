@@ -69,10 +69,13 @@ jobs:
 
       - name: Keep alive
         run: |
-          # يفضل شغال 5 ساعات - يطبع الرابط كل دقيقة
+          # يفضل شغال 5 ساعات - يطبع الرابط + سجل البروكسي كل دقيقة لرؤية محاولات CONNECT
           for i in $(seq 1 300); do
             echo "[$i/300] $(date) - proxy alive"
             cat /tmp/bore.log | grep -oE "bore\.pub:[0-9]+" || echo "waiting bore..."
             curl -s http://127.0.0.1:8080/health | grep -q "Proxy" && echo "health ok" || echo "health fail"
+            echo "--- proxy.log tail (remote attempts) ---"
+            tail -15 /tmp/proxy.log || true
+            echo "--- end log ---"
             sleep 60
           done
