@@ -6,6 +6,8 @@ Private USA proxy server, deployed automatically by **IPNET**.
 
 Developer: **X5Coder**
 
+Original project: https://github.com/X5Coder/proxy-usa
+
 ## What is this?
 
 Free USA server (GitHub Actions) running an encrypted Shadowsocks proxy.
@@ -24,4 +26,4 @@ Do not delete `ss_url.txt` — the app reads the current address from it.
 Do not make this repo private — Actions minutes and raw file access work best public.
 
 ---
-Made with IPNET v1 — by X5Coder — https://www.youtube.com/@Kareem-X5Coder
+Made with IPNET — by X5Coder — https://www.youtube.com/@Kareem-X5Coder

@@ -33,7 +33,7 @@ import urllib.error
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.0.0"
+APP_VERSION = "v1.0.1"
 CANONICAL_REPO = "X5Coder/proxy-usa"  # templates are downloaded from here
 PROJECT_FILES = [
     "server.py",
@@ -369,13 +369,15 @@ def setup_backend(repo_name, log):
         log(f"https://github.com/{owner}/{repo}/actions")
     log("Waiting for the encrypted endpoint (up to ~12 min) ...")
     endpoint = ""
+    started = time.time()
     for i in range(48):
         time.sleep(15)
         v = raw_get(f"{RAW}/{owner}/{repo}/main/ss_url.txt")
         if re.match(r"bore\.pub:\d+", v or ""):
             endpoint = v
             break
-        log(f"... still building ({i + 1}/48)")
+        mins = int((time.time() - started) // 60) + 1
+        log(f"... still building (~{mins} min elapsed)")
     cfg = {"owner": owner, "repo": repo,
            "password": password, "method": SS_METHOD}
     save_config(cfg)
@@ -883,6 +885,37 @@ def endpoint_reachable(endpoint, timeout=10):
         return False
 
 
+def proxy_working(timeout=12):
+    """True only if traffic REALLY flows end-to-end: SOCKS5 handshake on
+    127.0.0.1:1080 + a CONNECT request through the Shadowsocks server.
+    A plain TCP check against bore.pub is NOT enough: the tunnel can be
+    up while the server-side proxy is dead and refusing every connection
+    (the singbox.log ERROR flood). Pure stdlib, no extra dependency."""
+    import socket
+    s = None
+    try:
+        s = socket.create_connection(("127.0.0.1", LOCAL_SOCKS_PORT),
+                                     timeout=timeout)
+        s.settimeout(timeout)
+        s.sendall(b"\x05\x01\x00")  # SOCKS5, no auth
+        if s.recv(2) != b"\x05\x00":
+            return False
+        host = b"www.gstatic.com"
+        req = (b"\x05\x01\x00\x03" + bytes([len(host)]) + host +
+               b"\x01\xbb")  # CONNECT host:443
+        s.sendall(req)
+        resp = s.recv(10)
+        return len(resp) >= 2 and resp[1] == 0x00
+    except Exception:
+        return False
+    finally:
+        try:
+            if s:
+                s.close()
+        except Exception:
+            pass
+
+
 def cancel_stuck_runs(cfg):
     """Cancel any in-progress proxy runs so a fresh one can take over."""
     token = api_token(cfg)
@@ -957,8 +990,9 @@ def stop_tunnel(proc, lf):
         pass
 
 
-def open_usa_chrome(chrome):
-    """Open Chrome with a USA identity: English UI+content, no WebRTC leak."""
+def open_usa_chrome(chrome, url=None):
+    """Open Chrome with a USA identity: English UI+content, no WebRTC leak.
+    url is opened only when given (first run); otherwise a normal window."""
     profile = os.path.join(app_dir(), "chrome-usa")
     os.makedirs(profile, exist_ok=True)
     # seed Accept-Language once (Chrome stores it in Preferences)
@@ -970,12 +1004,14 @@ def open_usa_chrome(chrome):
     except Exception:
         pass
     try:
-        subprocess.Popen([
+        args = [
             chrome, f"--user-data-dir={profile}",
             f"--proxy-server=socks5://127.0.0.1:{LOCAL_SOCKS_PORT}",
             "--lang=en-US",
-            "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
-            "https://ipinfo.io/"])
+            "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"]
+        if url:
+            args.append(url)
+        subprocess.Popen(args)
         print("Chrome opened (USA profile: English, WebRTC leak blocked).",
               flush=True)
     except Exception as e:
@@ -990,6 +1026,14 @@ def run_terminal(cfg):
     chrome = find_chrome()
     if not chrome:
         print("WARNING: Chrome not found. Install Google Chrome first.")
+    # keep the tunnel log from growing forever (old ERROR floods)
+    try:
+        _lp = tunnel_log_path()
+        if os.path.exists(_lp) and os.path.getsize(_lp) > 2 * 1024 * 1024:
+            open(_lp, "w").close()
+            print("Old tunnel log cleared (>2MB).", flush=True)
+    except Exception:
+        pass
     # repo sanity check (needs GitHub session only for healing/dispatch)
     token = api_token(cfg)
     if token:
@@ -1029,7 +1073,7 @@ def run_terminal(cfg):
                 current = endpoint
                 host, _, port = endpoint.partition(":")
                 ccfg = {
-                    "log": {"level": "warn"},
+                    "log": {"level": "error"},
                     "inbounds": [{"type": "mixed", "tag": "in",
                                   "listen": "127.0.0.1",
                                   "listen_port": LOCAL_SOCKS_PORT}],
@@ -1050,19 +1094,26 @@ def run_terminal(cfg):
                 print("IP: USA (Phoenix, Arizona)")
                 print("-" * 60, flush=True)
                 if chrome:
-                    open_usa_chrome(chrome)
+                    if not cfg.get("welcomed"):
+                        open_usa_chrome(chrome, "https://ipleak.net/")
+                        cfg["welcomed"] = True
+                        save_config(cfg)
+                    else:
+                        open_usa_chrome(chrome)
             if proc and proc.poll() not in (None, 0):
                 stop_tunnel(proc, tun_log)
                 proc, tun_log = start_tunnel(exe, client_cfg)
                 print("Local tunnel restarted.", flush=True)
-            # --- client-side healing: is the tunnel actually reachable? ---
-            if current and endpoint_reachable(current):
+            # --- client-side healing: does traffic REALLY flow? ---
+            # (TCP to bore.pub is not enough: the tunnel can be up while
+            # the server-side proxy refuses everything -> ERROR flood.)
+            if current and proxy_working():
                 if dead:
-                    print("Tunnel is reachable again.", flush=True)
+                    print("Proxy is working again.", flush=True)
                 dead = 0
             elif current:
                 dead += 1
-                print(f"Server tunnel expired ({dead}/3) - getting a new one ...",
+                print(f"Proxy not responding ({dead}/3) - getting a new one ...",
                       flush=True)
                 if dead >= 3 and time.time() - last_heal > 900:
                     last_heal = time.time()
@@ -1071,12 +1122,16 @@ def run_terminal(cfg):
                           flush=True)
                     if request_fresh_server(cfg):
                         # wait until a DIFFERENT endpoint is published
-                        for _ in range(48):
+                        for _w in range(48):
                             time.sleep(15)
                             _, fresh = fetch_endpoint(cfg)
                             if fresh and fresh != current:
                                 print(f"New endpoint: {fresh}", flush=True)
                                 break
+                            if (_w + 1) % 4 == 0:
+                                print(f"... waiting for new server "
+                                      f"({(_w + 1) * 15 // 60} min so far)",
+                                      flush=True)
             time.sleep(60)
     except KeyboardInterrupt:
         print("\nStopping...")
