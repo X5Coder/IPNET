@@ -1,7 +1,7 @@
 package com.ipnet.android
 
 import android.os.ParcelFileDescriptor
-import hev.htproxy.TProxyService
+import hev.htproxy.TProxyService as Hev
 import java.io.File
 
 /**
@@ -34,19 +34,19 @@ class HevTunnel {
     fun start(confDir: File, tun: ParcelFileDescriptor): Boolean {
         val conf = File(confDir, "hev.yml")
         conf.writeText(buildConfig())
-        running = TProxyStartService(conf.absolutePath, tun.fd)
+        running = Hev.TProxyStartService(conf.absolutePath, tun.fd)
         return running
     }
 
     fun stop() {
         try {
-            TProxyStopService()
+            Hev.TProxyStopService()
         } catch (_: Exception) { }
         running = false
     }
 
     fun isRunning(): Boolean = try {
-        TProxyIsRunning()
+        Hev.TProxyIsRunning()
     } catch (_: Exception) {
         running
     }
