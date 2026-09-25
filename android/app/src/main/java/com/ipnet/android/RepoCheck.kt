@@ -61,11 +61,7 @@ object RepoCheck {
         val base = "$RAW/$owner/$repo/main"
         val ss = raw("$base/ss_url.txt")
         val bore = raw("$base/bore_url.txt")
-        val endpoint = when {
-            Regex("""bore\.pub:\d+""").matches(ss) -> ss
-            Regex("""bore\.pub:\d+""").matches(bore) -> bore
-            else -> ""
-        }
+        val endpoint = pickEndpoint(ss, bore)
         val singbox = raw("$base/singbox-server.json")
         val workflow = raw("$base/.github/workflows/proxy.yml")
         var hasCode = singbox.isNotEmpty() || workflow.isNotEmpty()
@@ -75,5 +71,33 @@ object RepoCheck {
         }
         val (pwd, method) = extractPassword(singbox, workflow)
         return Snapshot(hasCode, endpoint, pwd, method)
+    }
+
+    private fun pickEndpoint(ss: String, bore: String): String = when {
+        Regex("""bore\.pub:\d+""").matches(ss) -> ss
+        Regex("""bore\.pub:\d+""").matches(bore) -> bore
+        else -> ""
+    }
+
+    /**
+     * Fresh check via Contents API (no stale CDN cache): this is what
+     * actually proves code exists RIGHT NOW. raw.githubusercontent can
+     * serve deleted files for minutes, which once caused a "wait 10 min"
+     * verdict on an emptied repo. Throws on auth/rate errors (never
+     * misread as empty); falls back to raw only without a token.
+     */
+    suspend fun snapshotSmart(owner: String, repo: String, api: GitHubApi?): Snapshot {
+        if (api == null) return snapshot(owner, repo)
+        val singbox = api.getFile(owner, repo, "singbox-server.json").orEmpty()
+        val workflow = api.getFile(owner, repo, ".github/workflows/proxy.yml").orEmpty()
+        var hasCode = singbox.isNotEmpty() || workflow.isNotEmpty()
+        if (!hasCode) {
+            val srv = api.getFile(owner, repo, "server.py").orEmpty()
+            hasCode = srv.contains("proxy", ignoreCase = true)
+        }
+        val ss = api.getFile(owner, repo, "ss_url.txt").orEmpty().trim()
+        val bore = api.getFile(owner, repo, "bore_url.txt").orEmpty().trim()
+        val (pwd, method) = extractPassword(singbox, workflow)
+        return Snapshot(hasCode, pickEndpoint(ss, bore), pwd, method)
     }
 }

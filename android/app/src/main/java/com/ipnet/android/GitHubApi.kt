@@ -39,6 +39,38 @@ class GitHubApi(private val token: String) {
         return JSONObject(body).getString("login")
     }
 
+    /** Classic-token scopes from the X-OAuth-Scopes header (empty for fine-grained). */
+    suspend fun scopes(): Set<String> = withContext(Dispatchers.IO) {
+        val req = Request.Builder().url("https://api.github.com/user")
+            .header("Accept", "application/vnd.github+json")
+            .header("Authorization", "Bearer $token")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .get().build()
+        http.newCall(req).execute().use { r ->
+            if (r.code != 200) throw RuntimeException("user HTTP ${r.code}")
+            r.body?.close()
+            r.headers("X-OAuth-Scopes").flatMap { h -> h.split(",") }
+                .map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        }
+    }
+
+    /**
+     * Fresh file content via Contents API (no CDN cache, unlike raw).
+     * Returns null ONLY on 404 (truly absent). Throws on 401/403/rate-limit
+     * so callers never mistake an auth failure for "empty repo".
+     */
+    suspend fun getFile(owner: String, repo: String, path: String): String? {
+        val (code, body) = call("GET", "https://api.github.com/repos/$owner/$repo/contents/$path?ref=main")
+        if (code == 404) return null
+        if (code == 403 && body.contains("rate limit", ignoreCase = true)) {
+            throw RuntimeException("GitHub rate limit - حاول بعد دقيقة")
+        }
+        if (code != 200) throw RuntimeException("read $path HTTP $code")
+        val content = JSONObject(body).optString("content", "").replace("\n", "")
+        if (content.isEmpty()) return null
+        return String(Base64.getDecoder().decode(content), Charsets.UTF_8)
+    }
+
     suspend fun ensurePublicRepo(repo: String) {
         val me = username()
         val (code, _) = call("GET", "https://api.github.com/repos/$me/$repo")

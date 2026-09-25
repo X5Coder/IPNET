@@ -7,14 +7,14 @@ import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.net.VpnService
-import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
-import android.provider.Settings
 import android.text.InputType
 import android.util.TypedValue
+import android.view.Gravity
 import android.view.View
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -24,23 +24,23 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 
 /**
- * IPNET Android — same idea as the desktop client, phone styling to match:
- * warm white (#FBFBFA), off-black type, hairline dividers, one solid CTA.
+ * IPNET Android — token gate first, everything else after.
  *
- * Flow:
- *  1. Paste a GitHub token once (classic token, scopes: repo + workflow).
- *     Created at github.com/settings/tokens — no OAuth app, no client_id,
- *     nothing to misconfigure (this replaces the device-code flow).
- *  2. Paste repo link -> [فحص]: working code attaches directly, empty repo
- *     shows [رفع الكود وتشغيل] (uploads bundle + dispatches, like the PC).
- *  3. [تشغيل VPN]: system consent once, then device-level TUN stays up
- *     with a Stop action in its notification + auto-restart after reboot
- *     (BootReceiver) + optional system Always-on toggle.
+ *  0. Token screen ONLY: paste classic token -> validated (identity +
+ *     repo+workflow scopes) -> unlocks the rest. Wrong scope/type is
+ *     rejected here with an explanation, never later as a cryptic 404.
+ *     [تغيير التوكن] goes back to this screen any time.
+ *  1. Repo screen: fresh API check (no stale cache) proves whether code
+ *     exists RIGHT NOW -> attach, wait, or upload.
+ *  2. VPN screen: device TUN + auto-refresh + boot/always-on.
  */
 class MainActivity : AppCompatActivity() {
+    private lateinit var tokenSection: LinearLayout
+    private lateinit var mainSection: LinearLayout
     private lateinit var repoInput: EditText
     private lateinit var tokenInput: EditText
     private lateinit var status: TextView
+    private lateinit var tokenStatus: TextView
     private lateinit var uploadBtn: Button
     private lateinit var vpnBtn: Button
     private var pendingEndpoint: Triple<String, Int, Pair<String, String>>? = null
@@ -64,41 +64,109 @@ class MainActivity : AppCompatActivity() {
         layout.addView(title("USA proxy in one click.", 13f, false, MUTED))
         layout.addView(divider())
 
-        layout.addView(title("١ — توكن GitHub (مرة واحدة)", 14f, true))
-        layout.addView(title(
-            "github.com/settings/tokens ← Generate new token (classic) ← علّم repo و workflow والصقه هنا.",
+        tokenSection = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        tokenSection.addView(title("التوكن أولاً (مرة واحدة)", 14f, true))
+        tokenSection.addView(title(
+            "من المتصفح: github.com/settings/tokens ← Generate new token (classic) ← علّم الاختيارات اللي تحت زي الصورة بالظبط ← انسخ التوكن والصقه هنا.",
             11f, false, MUTED))
+        tokenSection.addView(scopesCard())
         tokenInput = field("ghp_...", true)
-        if (Prefs.loadToken(this).isNotEmpty()) tokenInput.setText("•••••• محفوظ ✓")
-        layout.addView(tokenInput)
-        layout.addView(action("حفظ التوكن") { saveToken() })
-        layout.addView(divider())
+        tokenSection.addView(tokenInput)
+        tokenSection.addView(action("تحقق ودخول") { saveToken() })
+        tokenStatus = title("", 12f, false, "#9F2F2D")
+        tokenSection.addView(tokenStatus)
+        layout.addView(tokenSection)
 
-        layout.addView(title("٢ — رابط المستودع", 14f, true))
-        layout.addView(title("مثال: SOMEONE/my-proxy", 11f, false, MUTED))
+        mainSection = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+        }
+        mainSection.addView(action("← تغيير التوكن") { showTokenScreen() })
+        mainSection.addView(title("المستودع", 14f, true))
+        mainSection.addView(title("مثال: SOMEONE/my-proxy", 11f, false, MUTED))
         repoInput = field("owner/repo أو رابط كامل", false)
-        layout.addView(repoInput)
-        layout.addView(action("فحص وتشغيل") { checkRepo() })
+        mainSection.addView(repoInput)
+        mainSection.addView(action("فحص وتشغيل") { checkRepo() })
         uploadBtn = action("رفع الكود وتشغيل") { uploadThenWait() }
         uploadBtn.visibility = View.GONE
-        layout.addView(uploadBtn)
+        mainSection.addView(uploadBtn)
         vpnBtn = action("تشغيل VPN") { startVpn() }
         vpnBtn.visibility = View.GONE
-        layout.addView(vpnBtn)
+        mainSection.addView(vpnBtn)
         status = title("", 12f, false, "#9F2F2D")
-        layout.addView(status)
-        layout.addView(divider())
-
-        layout.addView(title("٣ — يفضل شغال", 14f, true))
-        layout.addView(action("تجاهل تحسين البطارية") { askIgnoreBattery() })
-        layout.addView(action("تثبيت VPN دائم") { openVpnSettings() })
-        layout.addView(title(
+        mainSection.addView(status)
+        mainSection.addView(divider())
+        mainSection.addView(title("يفضل شغال", 14f, true))
+        mainSection.addView(action("تجاهل تحسين البطارية") { askIgnoreBattery() })
+        mainSection.addView(action("تثبيت VPN دائم") { openVpnSettings() })
+        mainSection.addView(title(
             "من إعدادات VPN فعّل Always-on على IPNET — النظام نفسه يرجع الخدمة بعد إعادة التشغيل.",
             11f, false, MUTED))
+        layout.addView(mainSection)
+
         setContentView(root)
+
+        // Silent re-validation of a saved token: valid -> straight to main.
+        val saved = Prefs.loadToken(this)
+        if (saved.isNotEmpty()) {
+            tokenStatus.text = "بتحقق من التوكن المحفوظ ..."
+            lifecycleScope.launch {
+                try {
+                    val api = GitHubApi(saved)
+                    api.username()
+                    checkScopesOrThrow(api)
+                    showMainScreen()
+                } catch (e: Exception) {
+                    tokenStatus.text = "التوكن المحفوظ مرفوض: ${e.message} — الصق واحد جديد."
+                }
+            }
+        }
     }
 
-    // ---------- UI helpers (IPNET look) ----------
+    /** Dark scopes card replicating the classic-token checkboxes image. */
+    private fun scopesCard(): LinearLayout {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#111827"))
+                cornerRadius = dp(12).toFloat()
+            }
+        }
+        card.addView(scopeCheck("repo", 0))
+        card.addView(scopeCheck("repo:status", 1))
+        card.addView(scopeCheck("repo_deployment", 1))
+        card.addView(scopeCheck("public_repo", 1))
+        card.addView(scopeCheck("repo:invite", 1))
+        card.addView(scopeCheck("security_events", 1))
+        card.addView(scopeCheck("workflow", 0))
+        val hint = TextView(this).apply {
+            text = "علّم نفس الاختيارات دي بالظبط."
+            setTextColor(Color.parseColor("#9CA3AF"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setPadding(0, dp(6), 0, 0)
+        }
+        card.addView(hint)
+        val lp = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT)
+        lp.setMargins(0, dp(8), 0, dp(8))
+        card.layoutParams = lp
+        return card
+    }
+
+    private fun scopeCheck(t: String, indent: Int): CheckBox =
+        CheckBox(this).apply {
+            text = t
+            isChecked = true
+            isEnabled = false // illustration only: this is what YOU tick on GitHub
+            setTextColor(Color.WHITE)
+            buttonTintList = android.content.res.ColorStateList.valueOf(
+                Color.parseColor("#22C55E"))
+            setPadding(dp(8 + indent * 18), dp(2), dp(8), dp(2))
+        }
+
+    // ---------- UI helpers ----------
     private fun dp(n: Int) = TypedValue.applyDimension(
         TypedValue.COMPLEX_UNIT_DIP, n.toFloat(), resources.displayMetrics).toInt()
 
@@ -146,36 +214,61 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-    private fun say(t: String) {
-        status.text = t
+    private fun showMainScreen() {
+        tokenSection.visibility = View.GONE
+        mainSection.visibility = View.VISIBLE
     }
 
-    // ---------- 1. token ----------
+    private fun showTokenScreen() {
+        mainSection.visibility = View.GONE
+        tokenSection.visibility = View.VISIBLE
+        tokenStatus.text = ""
+    }
+
+    // ---------- 0. token gate ----------
+    private suspend fun checkScopesOrThrow(api: GitHubApi) {
+        val scopes = api.scopes()
+        if (scopes.isEmpty()) {
+            throw RuntimeException(
+                "التوكن fine-grained — مبيعرفش ينشئ مستودعات. اعمل classic وعلّم repo و workflow.")
+        }
+        val missing = listOf("repo", "workflow").filter { it !in scopes }
+        if (missing.isNotEmpty()) {
+            throw RuntimeException("ناقص صلاحيات: ${missing.joinToString()} — علّم repo و workflow.")
+        }
+    }
+
+    private fun apiOrNull(): GitHubApi? {
+        val t = Prefs.loadToken(this)
+        return if (t.isEmpty()) null else GitHubApi(t)
+    }
+
     private fun saveToken() {
-        var t = tokenInput.text.toString().trim()
-        if (t.startsWith("•")) t = Prefs.loadToken(this)
-        if (t.isEmpty()) {
-            say("الصق التوكن الأول.")
+        val t = tokenInput.text.toString().trim()
+        if (t.isEmpty() || t.startsWith("•")) {
+            tokenStatus.text = "الصق التوكن الأول."
             return
         }
-        say("بتحقق من التوكن ...")
+        tokenStatus.text = "بتحقق ..."
         lifecycleScope.launch {
             try {
-                val me = GitHubApi(t).username()
+                val api = GitHubApi(t)
+                val me = api.username()
+                checkScopesOrThrow(api)
                 Prefs.saveToken(this@MainActivity, t)
-                tokenInput.setText("•••••• محفوظ ✓")
-                say("تمام! مسجل كـ $me.")
+                showMainScreen()
+                status.text = "مسجل كـ $me ✓"
             } catch (e: Exception) {
-                say("التوكن مرفوض: ${e.message}")
+                tokenStatus.text = "مرفوض: ${e.message}"
             }
         }
     }
 
-    // ---------- 2. check / upload ----------
+    // ---------- 1. fresh check / upload (Contents API, no stale cache) ----------
     private fun checkRepo() {
         val parsed = RepoCheck.parseRepoUrl(repoInput.text.toString())
         if (parsed == null) {
-            say("الرابط غلط. مثال: SOMEONE/my-proxy")
+            status.text = "الرابط غلط. مثال: SOMEONE/my-proxy"
             return
         }
         val (owner, repo) = parsed
@@ -183,30 +276,27 @@ class MainActivity : AppCompatActivity() {
         pendingRepo = repo
         uploadBtn.visibility = View.GONE
         vpnBtn.visibility = View.GONE
-        say("بفحص $owner/$repo ...")
+        status.text = "بفحص $owner/$repo من السيرفر مباشرة ..."
         lifecycleScope.launch {
             try {
-                val snap = RepoCheck.snapshot(owner, repo)
+                val snap = RepoCheck.snapshotSmart(owner, repo, apiOrNull())
                 if (!snap.hasCode) {
-                    if (Prefs.loadToken(this@MainActivity).isEmpty()) {
-                        say("المستودع فاضي — احفظ التوكن الأول عشان أرفع الكود.")
-                    } else {
-                        say("المستودع فاضي — دوس رفع الكود وتشغيل.")
-                        uploadBtn.visibility = View.VISIBLE
-                    }
+                    status.text = "المستودع فاضي فعلاً (فحص مباشر) — دوس رفع الكود وتشغيل."
+                    uploadBtn.visibility = View.VISIBLE
                     return@launch
                 }
                 if (snap.password.isEmpty()) {
-                    say("فيه كود بس الباسورد مش مقروء.")
+                    status.text = "فيه ملفات بس الباسورد مش مقروء — ارفع الكود من جديد."
+                    uploadBtn.visibility = View.VISIBLE
                     return@launch
                 }
                 if (snap.endpoint.isEmpty()) {
-                    say("الكود موجود بس السيرفر لسه بيبني — استنى دقايق ودوس فحص تاني.")
+                    status.text = "الكود موجود فعلاً بس السيرفر لسه بيبني — استنى دقايق ودوس فحص تاني."
                     return@launch
                 }
                 gotEndpoint(snap.endpoint, snap.password, snap.method)
             } catch (e: Exception) {
-                say("فشل الفحص: ${e.message}")
+                status.text = "فشل الفحص: ${e.message}"
             }
         }
     }
@@ -215,39 +305,38 @@ class MainActivity : AppCompatActivity() {
         val (h, p) = endpoint.split(":")
         pendingEndpoint = Triple(h, p.toInt(), password to method)
         Prefs.save(this, pendingOwner, pendingRepo, h, p.toInt(), password, method)
-        say("تمام! endpoint: $endpoint — دوس تشغيل VPN.")
+        status.text = "تمام! endpoint: $endpoint — دوس تشغيل VPN."
         vpnBtn.visibility = View.VISIBLE
     }
 
     private fun uploadThenWait() {
         val token = Prefs.loadToken(this)
         if (token.isEmpty()) {
-            say("احفظ التوكن الأول.")
+            status.text = "احفظ التوكن الأول."
             return
         }
-        say("بيرفع الكود لـ $pendingRepo ...")
+        status.text = "بيرفع الكود لـ $pendingRepo ..."
         lifecycleScope.launch {
             try {
                 val (me, _) = BundleUploader.uploadAll(
-                    this@MainActivity, GitHubApi(token), pendingRepo)
+                    this@MainActivity, GitHubApi(token), pendingRepo, token)
                 pendingOwner = me
-                say("اترفع لـ $me/$pendingRepo واشتغل — استنى دقايق ودوس فحص.")
+                status.text = "اترفع لـ $me/$pendingRepo واشتغل — استنى دقايق ودوس فحص."
             } catch (e: Exception) {
-                say("فشل الرفع: ${e.message}")
+                status.text = "فشل الرفع: ${e.message}"
             }
         }
     }
 
-    // ---------- 3. VPN + staying alive ----------
+    // ---------- 2. VPN + staying alive ----------
     private fun startVpn() {
         val ep = pendingEndpoint ?: run {
-            // Reboot case: rebuild from saved prefs.
             val c = Prefs.load(this)
             val h = c["host"].orEmpty()
             val p = c["port"]?.toIntOrNull() ?: 0
             val pw = c["password"].orEmpty()
             if (h.isEmpty() || p == 0 || pw.isEmpty()) {
-                say("مفيش endpoint محفوظ — اعمل فحص الأول.")
+                status.text = "مفيش endpoint محفوظ — اعمل فحص الأول."
                 return
             }
             pendingOwner = c["owner"].orEmpty()
@@ -273,13 +362,13 @@ class MainActivity : AppCompatActivity() {
             putExtra("ss_method", ep.third.second)
         }
         startForegroundService(i)
-        say("VPN شغال — كل طلبات الجهاز طالعة أمريكي. الإيقاف من الإشعار.")
+        status.text = "VPN شغال — كل طلبات الجهاز طالعة أمريكي. الإيقاف من الإشعار."
     }
 
     private fun askIgnoreBattery() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         if (pm.isIgnoringBatteryOptimizations(packageName)) {
-            say("تحسين البطارية متجاهل أصلاً ✓")
+            status.text = "تحسين البطارية متجاهل أصلاً ✓"
             return
         }
         try {
@@ -287,16 +376,16 @@ class MainActivity : AppCompatActivity() {
                 Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
                 Uri.parse("package:$packageName")))
         } catch (e: Exception) {
-            say("افتحها يدوياً من إعدادات البطارية.")
+            status.text = "افتحها يدوياً من إعدادات البطارية."
         }
     }
 
     private fun openVpnSettings() {
         try {
             startActivity(Intent("android.net.vpn.SETTINGS"))
-            say("فعّل Always-on على IPNET من القائمة.")
+            status.text = "فعّل Always-on على IPNET من القائمة."
         } catch (e: Exception) {
-            say("افتح إعدادات VPN يدوياً وفعّل Always-on.")
+            status.text = "افتح إعدادات VPN يدوياً وفعّل Always-on."
         }
     }
 

@@ -11,8 +11,8 @@ android {
         applicationId = "com.ipnet.android"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
         // libbox ships a big .so per ABI (~70MB x4 = the 324MB APK).
         // arm64-v8a covers virtually all phones from the last 8 years.
         ndk {

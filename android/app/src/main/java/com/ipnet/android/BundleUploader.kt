@@ -33,13 +33,14 @@ object BundleUploader {
     }
 
     /** Uploads everything, dispatches the workflow, returns (owner, password). */
-    suspend fun uploadAll(context: Context, api: GitHubApi, repo: String): Pair<String, String> {
+    suspend fun uploadAll(context: Context, api: GitHubApi, repo: String, token: String): Pair<String, String> {
         val me = api.username()
         api.ensurePublicRepo(repo)
         // Reuse existing password so a re-run doesn't kill a live endpoint.
+        // Fresh API read: proves what is in the repo RIGHT NOW.
         var password = ""
         try {
-            val snap = RepoCheck.snapshot(me, repo)
+            val snap = RepoCheck.snapshotSmart(me, repo, api)
             if (snap.password.isNotEmpty()) password = snap.password
         } catch (_: Exception) { }
         if (password.isEmpty()) password = generatePassword()
