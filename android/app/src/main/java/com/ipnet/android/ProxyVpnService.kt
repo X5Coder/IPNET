@@ -80,7 +80,7 @@ class ProxyVpnService : VpnService() {
     override fun onDestroy() {
         scope.cancel()
         try {
-            tunnel.close()
+            tunnel.stop()
         } catch (_: Exception) { }
         tun?.close()
         EndpointWorker.cancel(this)
