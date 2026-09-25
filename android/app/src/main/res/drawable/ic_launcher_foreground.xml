@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- IPNET mark: white ring + green dot (converted from ipnet.svg). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="256"
+    android:viewportHeight="256">
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="30"
+        android:pathData="M62,118 a56,56 0 1,0 112,0 a56,56 0 1,0 -112,0" />
+    <path
+        android:fillColor="#22C55E"
+        android:pathData="M154,186 a32,32 0 1,0 64,0 a32,32 0 1,0 -64,0" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#111827"
+        android:strokeWidth="12"
+        android:pathData="M154,186 a32,32 0 1,0 64,0 a32,32 0 1,0 -64,0" />
+</vector>

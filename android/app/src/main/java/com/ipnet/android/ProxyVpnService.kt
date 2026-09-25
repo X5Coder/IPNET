@@ -21,11 +21,23 @@ import kotlinx.coroutines.*
  *     restarts us with the renewed port — mirrors desktop run_terminal.
  */
 class ProxyVpnService : VpnService() {
+    companion object {
+        const val ACTION_STOP = "com.ipnet.android.STOP_VPN"
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var tun: ParcelFileDescriptor? = null
     private lateinit var tunnel: SslocalTunnel
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            try {
+                if (::tunnel.isInitialized) tunnel.stop()
+            } catch (_: Exception) { }
+            EndpointWorker.cancel(this)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         startForegroundWithNotification()
         val host = intent?.getStringExtra("ss_host").orEmpty()
         val port = intent?.getIntExtra("ss_port", 0) ?: 0
@@ -68,11 +80,17 @@ class ProxyVpnService : VpnService() {
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE,
         )
+        val stopPi = PendingIntent.getService(
+            this, 1,
+            Intent(this, ProxyVpnService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
         val n = Notification.Builder(this, "ipnet")
             .setContentTitle("IPNET USA active")
-            .setContentText("All traffic via USA proxy")
+            .setContentText("All traffic via USA proxy - tap Stop to disconnect")
             .setSmallIcon(android.R.drawable.ic_lock_lock)
             .setContentIntent(pi)
+            .addAction(android.R.drawable.ic_lock_power_off, "إيقاف", stopPi)
             .build()
         startForeground(1, n)
     }

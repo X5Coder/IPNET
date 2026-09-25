@@ -28,4 +28,13 @@ object Prefs {
             "method" to (p.getString("method", "aes-256-gcm") ?: "aes-256-gcm"),
         )
     }
+
+    fun saveToken(ctx: Context, token: String) {
+        ctx.getSharedPreferences(F, Context.MODE_PRIVATE).edit()
+            .putString("gh_token", token).apply()
+    }
+
+    fun loadToken(ctx: Context): String =
+        ctx.getSharedPreferences(F, Context.MODE_PRIVATE)
+            .getString("gh_token", "").orEmpty()
 }
