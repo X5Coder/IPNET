@@ -1,0 +1,245 @@
+name: USA Proxy (GitHub Actions + bore)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # كل 5 ساعات - يرجع يشتغل تلقائي لو فصل (Actions حدها 6 ساعات)
+    - cron: '0 */5 * * *'
+
+permissions:
+  contents: write
+
+# Only one runner at a time: overlapping runs push different endpoints
+# and the client flaps between a live and a dying tunnel.
+concurrency:
+  group: usa-proxy
+  cancel-in-progress: true
+
+jobs:
+  proxy:
+    # Never run on the template repo itself (schedule would burn minutes
+    # and push endpoint files to main). User copies run elsewhere.
+    if: github.repository != 'X5Coder/proxy-usa'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300  # 5 ساعات
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Start proxy
+        run: |
+          echo "Starting proxy on 0.0.0.0:8080 ..."
+          PORT=8080 PROXY_USER=x5coder PROXY_PASS='X5_Secure_2026!Strong' python3 server.py > /tmp/proxy.log 2>&1 &
+          echo $! > /tmp/proxy.pid
+          sleep 3
+          cat /tmp/proxy.log
+          curl -s http://127.0.0.1:8080/health | head -5
+          echo "Proxy ready"
+          echo "=== LOCAL PROXY SELF-TEST (inside runner) ==="
+          echo "--- http via localhost proxy ---"
+          curl -s --max-time 15 -x 'http://x5coder:X5_Secure_2026!Strong@127.0.0.1:8080' http://httpbin.org/ip || echo "LOCAL HTTP FAIL"
+          echo ""
+          echo "--- https via localhost proxy (CONNECT) ---"
+          curl -s --max-time 20 -x 'http://x5coder:X5_Secure_2026!Strong@127.0.0.1:8080' https://httpbin.org/ip || echo "LOCAL HTTPS FAIL"
+          echo ""
+          echo "--- runner egress ip (should be US) ---"
+          curl -s --max-time 10 https://ipinfo.io/json | head -12 || true
+
+      - name: Start Shadowsocks (encrypted - bypasses CONNECT DPI block)
+        run: |
+          echo "Installing sing-box ..."
+          SB_VER="1.14.2"
+          curl -sL --max-time 120 "https://github.com/SagerNet/sing-box/releases/download/v${SB_VER}/sing-box-${SB_VER}-linux-amd64.tar.gz" -o /tmp/sb.tgz
+          tar xz -f /tmp/sb.tgz -C /tmp
+          cp /tmp/sing-box-*/sing-box /tmp/sing-box && chmod +x /tmp/sing-box
+          /tmp/sing-box version
+          echo "Starting ss server on 0.0.0.0:8388 ..."
+          /tmp/sing-box run -c singbox-server.json > /tmp/ss.log 2>&1 &
+          echo $! > /tmp/ss.pid
+          sleep 3
+          cat /tmp/ss.log
+          ss -tlnp | grep -E "8388|8080" || netstat -tlnp | grep -E "8388|8080" || true
+          echo "Shadowsocks ready (aes-256-gcm, port 8388)"
+
+      - name: Install bore
+        run: |
+          set -x
+          rm -f /tmp/bore /tmp/bore.tar.gz
+          if curl -sL --max-time 60 https://github.com/ekzhang/bore/releases/download/v0.5.0/bore-v0.5.0-x86_64-unknown-linux-gnu.tar.gz -o /tmp/bore.tar.gz; then
+            if tar tzf /tmp/bore.tar.gz >/dev/null 2>&1; then
+              tar xz -f /tmp/bore.tar.gz -C /tmp && chmod +x /tmp/bore && echo "bore binary ok"
+            else
+              echo "tar invalid, fallback cargo"; rm -f /tmp/bore
+            fi
+          fi
+          if [ ! -x /tmp/bore ]; then
+            cargo install bore-cli && cp ~/.cargo/bin/bore /tmp/bore
+          fi
+          /tmp/bore --version
+
+      - name: Start bore tunnels (http-proxy 8080 + shadowsocks 8388)
+        run: |
+          echo "Starting bore tunnels ..."
+          rm -f /tmp/bore.log /tmp/bore-ss.log
+          /tmp/bore local 8080 --to bore.pub > /tmp/bore.log 2>&1 &
+          echo $! > /tmp/bore.pid
+          /tmp/bore local 8388 --to bore.pub > /tmp/bore-ss.log 2>&1 &
+          echo $! > /tmp/bore-ss.pid
+          sleep 12
+          echo "=== bore http-proxy ==="; cat /tmp/bore.log
+          echo "=== bore shadowsocks ==="; cat /tmp/bore-ss.log
+          URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore.log | head -1)
+          SS_URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore-ss.log | head -1)
+          if [ -z "$URL" ]; then echo "BORE_HTTP_FAIL"; exit 1; fi
+          if [ -z "$SS_URL" ]; then echo "BORE_SS_FAIL"; exit 1; fi
+          echo "$URL" > bore_url.txt
+          echo "$SS_URL" > ss_url.txt
+          {
+            echo "HTTP_PROXY=$URL (user x5coder, http only - CONNECT blocked by EG ISP)"
+            echo "SHADOWSOCKS=$SS_URL (aes-256-gcm, pass X5_Secure_2026!Strong - full https)"
+          } | tee /tmp/urls.txt
+          cat /tmp/urls.txt > proxy_urls.txt
+          git config user.name "proxy-bot"
+          git config user.email "bot@proxy.usa"
+          git pull --rebase || true
+          git add bore_url.txt ss_url.txt proxy_urls.txt || true
+          git commit -m "update bore $URL ss $SS_URL" || true
+          git push || true
+          echo "### HTTP_PROXY: $URL" >> $GITHUB_STEP_SUMMARY
+          echo "### SHADOWSOCKS: $SS_URL" >> $GITHUB_STEP_SUMMARY
+
+      - name: Public loopback test (http via bore + ss via local client)
+        run: |
+          URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore.log | head -1)
+          SS_URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore-ss.log | head -1)
+          SS_HOST=$(echo $SS_URL | cut -d: -f1)
+          SS_PORT=$(echo $SS_URL | cut -d: -f2)
+          echo "Testing HTTP via public URL: $URL"
+          curl -s --max-time 20 -x "http://x5coder:X5_Secure_2026!Strong@$URL" http://httpbin.org/ip || { echo "PUBLIC HTTP FAIL"; exit 1; }
+          echo ""
+          echo "NOTE: public https via plain CONNECT is expected to work from US runner (loopback) but BLOCKED from EG ISP - testing loopback anyway:"
+          curl -s --max-time 30 -x "http://x5coder:X5_Secure_2026!Strong@$URL" https://httpbin.org/ip || echo "PUBLIC HTTPS (loopback) FAIL - check log"
+          echo ""
+          echo "=== Testing Shadowsocks through public bore URL ($SS_URL) ==="
+          printf '{"log":{"level":"info"},"inbounds":[{"type":"socks","tag":"socks-in","listen":"127.0.0.1","listen_port":1080}],"outbounds":[{"type":"shadowsocks","tag":"ss-out","server":"%s","server_port":%s,"method":"aes-256-gcm","password":"X5_Secure_2026!Strong"}]}' "$SS_HOST" "$SS_PORT" > /tmp/sb-client.json
+          /tmp/sing-box run -c /tmp/sb-client.json > /tmp/sb-client.log 2>&1 &
+          sleep 3
+          cat /tmp/sb-client.log
+          echo "--- ss: http via socks ---"
+          curl -s --max-time 20 --socks5-hostname 127.0.0.1:1080 http://httpbin.org/ip || { echo "SS HTTP FAIL"; exit 1; }
+          echo ""
+          echo "--- ss: https via socks (THE REAL TEST) ---"
+          curl -s --max-time 30 --socks5-hostname 127.0.0.1:1080 https://httpbin.org/ip || { echo "SS HTTPS FAIL"; exit 1; }
+          echo ""
+          echo "--- ss: ipinfo (should be US) ---"
+          curl -s --max-time 20 --socks5-hostname 127.0.0.1:1080 https://ipinfo.io/json | head -15 || true
+          echo "ALL PUBLIC TESTS OK"
+
+      - name: Keep alive
+        run: |
+          push_urls() {
+            git config user.name "proxy-bot" || true
+            git config user.email "bot@proxy.usa" || true
+            git pull --rebase || true
+            git add bore_url.txt ss_url.txt proxy_urls.txt || true
+            git commit -m "update bore $1 ss $2 (auto-heal)" || true
+            git push || true
+          }
+          # Monitor client: talks SOCKS to 127.0.0.1:1081, exits through the
+          # PUBLIC bore SS tunnel. A plain TCP check is NOT enough: bore.pub
+          # can accept TCP while the server behind it refuses everything.
+          restart_monitor() {
+            echo "restarting monitor client for $1 ..."
+            pkill -f sb-monitor.json 2>/dev/null || true
+            sleep 1
+            printf '{"log":{"level":"error"},"inbounds":[{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":1081}],"outbounds":[{"type":"shadowsocks","tag":"out","server":"%s","server_port":%s,"method":"aes-256-gcm","password":"X5_Secure_2026!Strong"}]}' "$1" "$2" > /tmp/sb-monitor.json
+            /tmp/sing-box run -c /tmp/sb-monitor.json > /tmp/sb-monitor.log 2>&1 &
+            echo $! > /tmp/sbmon.pid
+            sleep 3
+          }
+          ss_alive() {
+            # real end-to-end traffic through the public tunnel (2 hosts,
+            # avoids false alarms from one flaky test site)
+            curl -s --max-time 10 --socks5-hostname 127.0.0.1:1081 http://httpbin.org/ip >/dev/null 2>&1 && return 0
+            curl -s --max-time 10 --socks5-hostname 127.0.0.1:1081 http://ipinfo.io/ip >/dev/null 2>&1 && return 0
+            return 1
+          }
+          restart_http_bore() {
+            echo "RESTARTING http bore tunnel..."
+            kill $(cat /tmp/bore.pid) 2>/dev/null || true
+            sleep 2
+            rm -f /tmp/bore.log
+            /tmp/bore local 8080 --to bore.pub > /tmp/bore.log 2>&1 &
+            echo $! > /tmp/bore.pid
+            sleep 12
+            cat /tmp/bore.log
+          }
+          restart_ss_bore() {
+            echo "RESTARTING ss bore tunnel..."
+            kill $(cat /tmp/bore-ss.pid) 2>/dev/null || true
+            sleep 2
+            rm -f /tmp/bore-ss.log
+            /tmp/bore local 8388 --to bore.pub > /tmp/bore-ss.log 2>&1 &
+            echo $! > /tmp/bore-ss.pid
+            sleep 12
+            cat /tmp/bore-ss.log
+          }
+          restart_ss_server() {
+            echo "RESTARTING local shadowsocks server..."
+            kill $(cat /tmp/ss.pid) 2>/dev/null || true
+            sleep 2
+            /tmp/sing-box run -c singbox-server.json > /tmp/ss.log 2>&1 &
+            echo $! > /tmp/ss.pid
+            sleep 3
+          }
+          # start the monitor against the current public SS endpoint
+          _SS0=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore-ss.log 2>/dev/null | head -1)
+          restart_monitor "$(echo $_SS0 | cut -d: -f1)" "$(echo $_SS0 | cut -d: -f2)"
+          fail_http=0; fail_ss=0
+          for i in $(seq 1 600); do
+            echo "[$i/600] $(date -u) - alive"
+            URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore.log 2>/dev/null | head -1)
+            SS_URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore-ss.log 2>/dev/null | head -1)
+            echo "HTTP_PROXY bore: $URL | SHADOWSOCKS bore: $SS_URL"
+            for svc in "proxy:/tmp/proxy.pid" "ss:/tmp/ss.pid" "bore:/tmp/bore.pid" "bore-ss:/tmp/bore-ss.pid" "sbmon:/tmp/sbmon.pid"; do
+              name=$(echo $svc | cut -d: -f1); pidf=$(echo $svc | cut -d: -f2)
+              if kill -0 $(cat $pidf) 2>/dev/null; then echo "$name pid alive"; else echo "$name DEAD"; fi
+            done
+            curl -s http://127.0.0.1:8080/health | grep -q "Proxy" && echo "http-proxy health ok" || echo "http-proxy health fail"
+            # --- real public tests every minute ---
+            if curl -s --max-time 15 -x "http://x5coder:X5_Secure_2026!Strong@$URL" http://httpbin.org/ip; then
+              echo "public HTTP ok"; fail_http=0
+            else
+              echo "public HTTP FAIL ($((fail_http+1))/2)"; fail_http=$((fail_http+1))
+            fi
+            if ss_alive; then
+              echo "public SS end-to-end ok"; fail_ss=0
+            else
+              echo "public SS end-to-end FAIL ($((fail_ss+1))/2)"; fail_ss=$((fail_ss+1))
+            fi
+            # --- auto-heal after 2 consecutive failures ---
+            changed=0
+            if [ "$fail_http" -ge 2 ]; then restart_http_bore; fail_http=0; changed=1; fi
+            if [ "$fail_ss" -ge 2 ]; then
+              restart_ss_bore
+              SS_URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore-ss.log 2>/dev/null | head -1)
+              restart_monitor "$(echo $SS_URL | cut -d: -f1)" "$(echo $SS_URL | cut -d: -f2)"
+              if ! ss_alive; then
+                echo "tunnel renewed but traffic still dead -> restarting ss server"
+                restart_ss_server
+                sleep 3
+              fi
+              fail_ss=0; changed=1
+            fi
+            if [ "$changed" -eq 1 ]; then
+              URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore.log 2>/dev/null | head -1)
+              SS_URL=$(grep -oE "bore\.pub:[0-9]+" /tmp/bore-ss.log 2>/dev/null | head -1)
+              echo "$URL" > bore_url.txt; echo "$SS_URL" > ss_url.txt
+              { echo "HTTP_PROXY=$URL (user x5coder, http only - CONNECT blocked by EG ISP)";
+                echo "SHADOWSOCKS=$SS_URL (aes-256-gcm, pass X5_Secure_2026!Strong - full https)"; } > proxy_urls.txt
+              push_urls "$URL" "$SS_URL"
+              echo "HEALED: HTTP=$URL SS=$SS_URL"
+            fi
+            echo "--- proxy.log tail ---"; tail -5 /tmp/proxy.log || true
+            sleep 30
+          done

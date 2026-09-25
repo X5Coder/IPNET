@@ -312,6 +312,83 @@ def download_template(path):
     return raw_get(f"{RAW}/{CANONICAL_REPO}/main/{path}")
 
 
+def extract_password_from_repo_text(singbox_text="", workflow_text="", server_text=""):
+    """Extract Shadowsocks password from public repo files.
+    Priority: singbox-server.json -> proxy.yml PROXY_PASS -> server.py."""
+    method = SS_METHOD
+    if singbox_text:
+        try:
+            data = json.loads(singbox_text)
+            for inbound in data.get("inbounds", []):
+                pwd = inbound.get("password")
+                m = inbound.get("method")
+                if pwd:
+                    if m:
+                        method = m
+                    return pwd, method
+        except Exception:
+            pass
+        m = re.search(r'"password"\s*:\s*"([^"]{4,128})"', singbox_text)
+        if m:
+            return m.group(1), method
+    if workflow_text:
+        m = re.search(r"PROXY_PASS='([^']{4,128})'", workflow_text)
+        if m:
+            return m.group(1), method
+        m = re.search(r'PROXY_PASS="([^"]{4,128})"', workflow_text)
+        if m:
+            return m.group(1), method
+    if server_text:
+        m = re.search(r'PROXY_PASSWORD",\s*"([^"]{4,128})"', server_text)
+        if m:
+            return m.group(1), method
+    return "", method
+
+
+def fetch_public_repo_snapshot(owner, repo):
+    """Read-only check of a PUBLIC repo (no login). Returns
+    {endpoint, endpoint_file, password, method, has_code}."""
+    base = f"{RAW}/{owner}/{repo}/main"
+    ss_endpoint = raw_get(f"{base}/ss_url.txt")
+    bore_endpoint = raw_get(f"{base}/bore_url.txt")
+    endpoint, endpoint_file = "", ""
+    if ss_endpoint and re.match(r"bore\.pub:\d+", ss_endpoint):
+        endpoint, endpoint_file = ss_endpoint, "ss_url.txt"
+    elif bore_endpoint and re.match(r"bore\.pub:\d+", bore_endpoint):
+        endpoint, endpoint_file = bore_endpoint, "bore_url.txt"
+    singbox_text = raw_get(f"{base}/singbox-server.json")
+    workflow_text = raw_get(f"{base}/.github/workflows/proxy.yml")
+    has_code = bool(singbox_text or workflow_text)
+    server_text = ""
+    if not has_code:
+        server_text = raw_get(f"{base}/server.py")
+        has_code = bool(server_text and "proxy" in server_text.lower())
+    password, method = extract_password_from_repo_text(
+        singbox_text, workflow_text, server_text)
+    return {"endpoint": endpoint, "endpoint_file": endpoint_file,
+            "password": password, "method": method, "has_code": has_code}
+
+
+def try_attach_public_repo(owner, repo, log=slog):
+    """Attach to an already-working PUBLIC repo: pull endpoint+password
+    and work directly WITHOUT re-uploading. No login needed."""
+    log(f"Checking public repo {owner}/{repo} ...")
+    snap = fetch_public_repo_snapshot(owner, repo)
+    if not snap["has_code"]:
+        raise RuntimeError(f"No proxy code in {owner}/{repo} (empty or private?).")
+    if not snap["password"]:
+        raise RuntimeError(f"Code found in {owner}/{repo} but password unreadable.")
+    cfg = {"owner": owner, "repo": repo, "password": snap["password"],
+           "method": snap.get("method") or SS_METHOD,
+           "attached": True, "readonly": True}
+    save_config(cfg)
+    if snap["endpoint"]:
+        log(f"Attached! Live endpoint: {snap['endpoint']} (no upload).")
+    else:
+        log("Attached! Code found, no live endpoint yet - will pick up auto.")
+    return cfg
+
+
 def put_file(owner, repo, token, path, content, msg):
     url = f"{API}/repos/{owner}/{repo}/contents/{path}"
     req = urllib.request.Request(url)
@@ -331,7 +408,22 @@ def put_file(owner, repo, token, path, content, msg):
 
 
 def setup_backend(repo_name, log):
-    """Browser login -> create/reuse repo -> upload -> start -> wait. Returns cfg."""
+    """Attach to ready public repo OR classic setup.
+    - Paste owner/repo link with working code -> attach directly, no upload.
+    - Empty/no-code -> login -> create under your account -> upload -> start."""
+    parsed = parse_repo_url(repo_name or "")
+    if parsed:
+        url_owner, url_repo = parsed
+        try:
+            return try_attach_public_repo(url_owner, url_repo, log)
+        except RuntimeError as e:
+            log(f"Direct attach failed: {e} - falling back to own copy.")
+            repo_name_fallback = url_repo
+        except Exception as e:
+            log(f"Direct attach failed: {e} - falling back to own copy.")
+            repo_name_fallback = url_repo
+    else:
+        repo_name_fallback = repo_name
     ensure_gh(log)
     if not gh_logged_in():
         log("A browser window will open: click Authorize on GitHub.")
@@ -342,12 +434,11 @@ def setup_backend(repo_name, log):
     owner = gh_username(token)
     if not owner:
         raise RuntimeError("Could not read GitHub username. Try again.")
-    parsed = parse_repo_url(repo_name or "")
-    if parsed:
-        # user pasted a repo URL: use its repo name (must belong to them)
-        repo = parsed[1]
+    parsed2 = parse_repo_url(repo_name_fallback or "")
+    if parsed2:
+        repo = parsed2[1]
     else:
-        repo = re.sub(r"[^A-Za-z0-9_.-]", "-", (repo_name or "my-usa-proxy").strip()) or "my-usa-proxy"
+        repo = re.sub(r"[^A-Za-z0-9_.-]", "-", (repo_name_fallback or "my-usa-proxy").strip()) or "my-usa-proxy"
     log(f"Checking {owner}/{repo} ...")
     code, _ = api_req("GET", f"{API}/repos/{owner}/{repo}", token)
     if code == 404:
@@ -360,7 +451,17 @@ def setup_backend(repo_name, log):
                                "https://github.com/new (Public, empty).")
     elif code != 200:
         raise RuntimeError("Cannot access the repo. Make it PUBLIC.")
-    password = "X5_" + secrets.token_urlsafe(14).replace("-", "S").replace("_", "s") + "!Strong"
+    # Reuse existing password on same owned repo so we don't kill a live endpoint.
+    password = ""
+    try:
+        snap_owned = fetch_public_repo_snapshot(owner, repo)
+        if snap_owned.get("password"):
+            password = snap_owned["password"]
+            log("Reusing existing password from your repo.")
+    except Exception:
+        pass
+    if not password:
+        password = "X5_" + secrets.token_urlsafe(14).replace("-", "S").replace("_", "s") + "!Strong"
     for src in PROJECT_FILES:
         # USER_README.md becomes the repo's README.md (no secrets inside)
         path = "README.md" if src == "USER_README.md" else src
@@ -393,7 +494,8 @@ def setup_backend(repo_name, log):
         mins = int((time.time() - started) // 60) + 1
         log(f"... still building (~{mins} min elapsed)")
     cfg = {"owner": owner, "repo": repo,
-           "password": password, "method": SS_METHOD}
+           "password": password, "method": SS_METHOD,
+           "attached": False, "readonly": False}
     save_config(cfg)
     if endpoint:
         log(f"Ready! Endpoint: {endpoint}")
@@ -1142,14 +1244,18 @@ def run_terminal(cfg):
                 # heal NOW instead of waiting 3 loop cycles (restart fix).
                 if first_run and not proxy_working():
                     first_run = False
-                    slog("Proxy not responding on startup - "
-                          "requesting a fresh server ...", flush=True)
-                    if not api_token(cfg):
-                        raise RuntimeError(
-                            "GitHub session expired. Log in again to heal the server.")
-                    if request_fresh_server(cfg):
-                        if wait_for_new_endpoint(cfg, current):
-                            continue  # reconfigure for the new endpoint
+                    if cfg.get("readonly"):
+                        slog("Proxy not responding on startup - read-only mode: "
+                              "waiting for owner to publish new endpoint ...", flush=True)
+                    else:
+                        slog("Proxy not responding on startup - "
+                              "requesting a fresh server ...", flush=True)
+                        if not api_token(cfg):
+                            raise RuntimeError(
+                                "GitHub session expired. Log in again to heal the server.")
+                        if request_fresh_server(cfg):
+                            if wait_for_new_endpoint(cfg, current):
+                                continue  # reconfigure for the new endpoint
                 first_run = False
                 slog("-" * 60)
                 slog(f"PROXY ADDRESS (manual use): 127.0.0.1:{LOCAL_SOCKS_PORT} (SOCKS5 + HTTP)")
@@ -1186,6 +1292,10 @@ def run_terminal(cfg):
                 if dead >= 2 and time.time() - last_heal > 120:
                     last_heal = time.time()
                     dead = 0
+                    if cfg.get("readonly"):
+                        slog("Read-only mode: cannot restart someone else's server. "
+                              "Waiting for new endpoint ...", flush=True)
+                        continue
                     if not api_token(cfg):
                         raise RuntimeError(
                             "GitHub session expired. Log in again to heal the server.")
