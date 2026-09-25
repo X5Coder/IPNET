@@ -4,3 +4,8 @@ __pycache__/
 .venv
 venv/
 .DS_Store
+
+# PyInstaller local build output
+build/
+dist/
+*.spec
