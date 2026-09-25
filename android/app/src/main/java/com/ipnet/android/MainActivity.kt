@@ -54,6 +54,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var vpnConsent: ActivityResultLauncher<Intent>
     @Volatile
     private var consentReturned = false
+    private val consentCancels = ArrayDeque<Long>()
 
     private val INK = "#111111"
     private val MUTED = "#787774"
@@ -68,7 +69,19 @@ class MainActivity : AppCompatActivity() {
             if (res.resultCode == Activity.RESULT_OK) {
                 pendingEndpoint?.let { launchVpn(it) }
             } else {
-                status.text = "الموافقة اترفضت أو النافذة متقفلتش صح — دوس تشغيل ووافق بـ OK."
+                val now = System.currentTimeMillis()
+                consentCancels.addLast(now)
+                while (consentCancels.isNotEmpty() && now - consentCancels.first() > 15000) {
+                    consentCancels.removeFirst()
+                }
+                if (consentCancels.size >= 2) {
+                    // Instant cancel twice in 15s = system refuses the dialog
+                    // (another VPN active / Always-on elsewhere / profile lock).
+                    status.text = "النظام بيرفض نافذة الموافقة فوراً — هفتح إعدادات VPN: اقفل أي VPN تاني وشيل Always-on من غير IPNET."
+                    openVpnSettings()
+                } else {
+                    status.text = "الموافقة اترفضت أو النافذة متقفلتش صح — دوس تشغيل ووافق بـ OK."
+                }
             }
         }
         val root = ScrollView(this).apply { setBackgroundColor(Color.parseColor("#FBFBFA")) }
@@ -416,6 +429,16 @@ class MainActivity : AppCompatActivity() {
         val ep = (c["host"].orEmpty() + ":" + c["port"].orEmpty()).trim(':')
         out.append("Endpoint محفوظ: ${ep.ifEmpty { "مفقود" }}\n")
         out.append("الخدمة: ${if (isVpnUp()) "شغالة" else "واقفة"}\n")
+        try {
+            val prepared = VpnService.prepare(this) == null
+            out.append("موافقة ممنوحة مسبقاً: ${if (prepared) "نعم ✓" else "لا"}\n")
+        } catch (_: Exception) { }
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+            val caps = cm.getNetworkCapabilities(cm.activeNetwork)
+            val otherVpn = caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true && !isVpnUp()
+            out.append("VPN تاني شغال حالياً: ${if (otherVpn) "نعم ← اقفله!" else "لا"}\n")
+        } catch (_: Exception) { }
         try {
             System.loadLibrary("hev-socks5-tunnel")
             out.append("hev: يتحمل ✓\n")
