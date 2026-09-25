@@ -9,6 +9,7 @@ import android.net.Uri
 import android.net.VpnService
 import android.os.Bundle
 import android.os.PowerManager
+import android.provider.Settings
 import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
