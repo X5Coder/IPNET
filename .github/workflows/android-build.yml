@@ -42,11 +42,21 @@ jobs:
           git clone --branch v1.24.0 --depth 1 https://github.com/shadowsocks/shadowsocks-rust ss-rust
           cd ss-rust
           cargo ndk -t arm64-v8a build --release --bin sslocal \
-            --no-default-features --features "local,local-tun,aead-cipher,logging,multi-threaded"
+            --no-default-features --features "local,aead-cipher,logging,multi-threaded"
           cd ..
           mkdir -p app/src/main/assets/bin/arm64-v8a
           cp ss-rust/target/aarch64-linux-android/release/sslocal app/src/main/assets/bin/arm64-v8a/sslocal
           ls -la app/src/main/assets/bin/arm64-v8a/
+
+      - name: Build hev-socks5-tunnel JNI lib (arm64)
+        run: |
+          mkdir -p hev-wrap && cd hev-wrap
+          git clone --branch 2.17.1 --depth 1 --recursive https://github.com/heiher/hev-socks5-tunnel jni
+          "$ANDROID_NDK_HOME/ndk-build" APP_ABI=arm64-v8a
+          cd ..
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          cp hev-wrap/libs/arm64-v8a/libhev-socks5-tunnel.so app/src/main/jniLibs/arm64-v8a/
+          ls -la app/src/main/jniLibs/arm64-v8a/
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3

@@ -6,45 +6,33 @@ import java.io.File
 import org.json.JSONObject
 
 /**
- * Minimal data plane: shadowsocks-rust `sslocal` in TUN mode (~4MB).
+ * Minimal SOCKS plane: shadowsocks-rust `sslocal` (~4MB).
  *
- * Chain: TUN fd (from VpnService.Builder) -> sslocal --protocol tun ->
- * Shadowsocks to bore.pub:port (USA). TCP+UDP (incl. DNS) go through the
- * shadowsocks UDP relay, which our sing-box server supports — no udpgw,
- * no tun2socks, no extra daemons.
- *
- * Loop protection: our own UID is excluded from the VPN via
- * Builder.addDisallowedApplication(), so sslocal's sockets (same UID)
- * always bypass the TUN. No per-socket protect() needed.
+ * Plain SOCKS5 on 127.0.0.1:1080 with UDP relay on (-u): the TUN layer
+ * (hev, in-process) forwards everything here, ss-local carries it to
+ * bore.pub:port (USA). No TUN duties here, so no fd passing — an exec'd
+ * child only needs sockets, which bypass the VPN via
+ * addDisallowedApplication(self).
  *
  * Binary provenance: built in CI from shadowsocks-rust source
- * (cargo-ndk, arm64-v8a, features: local,local-tun,aead-cipher) and
- * staged at assets/bin/arm64-v8a/sslocal. Extracted to filesDir on
- * first run (assets lose the exec bit, so we chmod here).
- *
- * NOTE: the two tun_* config keys below mirror sslocal's documented
- * tun options; if a first device run reports an unknown key in logcat,
- * the fix is confined to buildTunConfig().
+ * (cargo-ndk, arm64-v8a, features: local,aead-cipher) and staged at
+ * assets/bin/arm64-v8a/sslocal. Extracted to filesDir on first run
+ * (assets lose the exec bit, so we chmod here).
  */
 class SslocalTunnel(private val ctx: Context) {
     private var proc: Process? = null
 
-    fun buildTunConfig(
-        tunFdFile: String, host: String, port: Int,
-        password: String, method: String,
-    ): String = JSONObject()
-        .put("server", host)
-        .put("server_port", port)
-        .put("password", password)
-        .put("method", method)
-        .put("protocol", "tun")
-        .put("tun_interface_name", "ipnet0")
-        .put("tun_interface_address", "10.8.0.2")
-        .put("tun_interface_destination", "10.8.0.1")
-        .put("tun_device_fd_from_path", tunFdFile)
-        .toString()
+    fun buildSocksConfig(host: String, port: Int, password: String, method: String): String =
+        JSONObject()
+            .put("server", host)
+            .put("server_port", port)
+            .put("password", password)
+            .put("method", method)
+            .put("local_address", "127.0.0.1")
+            .put("local_port", 1080)
+            .toString()
 
-    fun start(tun: ParcelFileDescriptor, host: String, port: Int, password: String, method: String) {
+    fun start(host: String, port: Int, password: String, method: String) {
         stop()
         val dir = File(ctx.filesDir, "bin").apply { mkdirs() }
         val bin = File(dir, "sslocal")
@@ -54,11 +42,9 @@ class SslocalTunnel(private val ctx: Context) {
             }
             Runtime.getRuntime().exec(arrayOf("chmod", "755", bin.absolutePath)).waitFor()
         }
-        val fdFile = File(dir, "tunfd.txt")
-        fdFile.writeText(tun.fd.toString())
         val confFile = File(dir, "sslocal.json")
-        confFile.writeText(buildTunConfig(fdFile.absolutePath, host, port, password, method))
-        proc = ProcessBuilder(bin.absolutePath, "-c", confFile.absolutePath)
+        confFile.writeText(buildSocksConfig(host, port, password, method))
+        proc = ProcessBuilder(bin.absolutePath, "-c", confFile.absolutePath, "-u")
             .directory(dir)
             .redirectErrorStream(true)
             .start()

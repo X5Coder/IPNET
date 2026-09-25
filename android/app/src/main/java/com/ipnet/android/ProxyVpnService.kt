@@ -8,17 +8,18 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.*
+import java.io.File
 
 /**
- * Device-level VPN: TUN interface -> sslocal (TUN mode) -> USA via bore.
+ * Device-level VPN that actually moves packets:
  *
- *  1. Builder(): address 10.8.0.2/32, route 0.0.0.0/0, DNS 1.1.1.1,
- *     plus addDisallowedApplication(self) so the tunnel's own sockets
- *     bypass the VPN (no routing loop, no per-socket protect needed).
- *  2. SslocalTunnel writes the TUN fd number to a file and execs the
- *     ~4MB sslocal binary with a JSON config (protocol=tun).
- *  3. EndpointWorker (WorkManager, 30 min) re-reads ss_url.txt and
- *     restarts us with the renewed port — mirrors desktop run_terminal.
+ *  1. Builder(): TUN 10.8.0.2/32, route 0.0.0.0/0, DNS 1.1.1.1, plus
+ *     addDisallowedApplication(self) so our own sockets bypass the TUN.
+ *  2. ss-local (child process, plain SOCKS+UDP relay on 127.0.0.1:1080)
+ *     carries traffic to bore.pub:port (USA).
+ *  3. hev-socks5-tunnel (IN-PROCESS JNI, fd passed as int — the only
+ *     way a TUN fd can be shared) pumps TUN <-> SOCKS, TCP+UDP.
+ *  4. EndpointWorker (WorkManager, 30 min) restarts us on renewal.
  */
 class ProxyVpnService : VpnService() {
     companion object {
@@ -27,14 +28,12 @@ class ProxyVpnService : VpnService() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var tun: ParcelFileDescriptor? = null
-    private lateinit var tunnel: SslocalTunnel
+    private var ss: SslocalTunnel? = null
+    private var hev: HevTunnel? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            try {
-                if (::tunnel.isInitialized) tunnel.stop()
-            } catch (_: Exception) { }
-            EndpointWorker.cancel(this)
+            stopAll()
             stopSelf()
             return START_NOT_STICKY
         }
@@ -47,13 +46,12 @@ class ProxyVpnService : VpnService() {
             stopSelf()
             return START_NOT_STICKY
         }
-        tunnel = SslocalTunnel(this)
         Prefs.save(this, intent?.getStringExtra("owner") ?: Prefs.load(this)["owner"].orEmpty(),
             intent?.getStringExtra("repo") ?: Prefs.load(this)["repo"].orEmpty(),
             host, port, password, method)
         scope.launch {
             try {
-                tun?.close()
+                stopAll()
                 tun = Builder()
                     .addAddress("10.8.0.2", 32)
                     .addRoute("0.0.0.0", 0)
@@ -64,13 +62,34 @@ class ProxyVpnService : VpnService() {
                     .setBlocking(true)
                     .establish()
                 val fd = tun ?: throw RuntimeException("TUN establish failed")
-                tunnel.start(fd, host, port, password, method)
+                val ssl = SslocalTunnel(this@ProxyVpnService).also { ss = it }
+                ssl.start(host, port, password, method)
+                val h = HevTunnel().also { hev = it }
+                val confDir = File(filesDir, "bin").apply { mkdirs() }
+                val up = withContext(Dispatchers.IO) { h.start(confDir, fd) }
+                if (!up) throw RuntimeException("hev tunnel refused to start")
             } catch (e: Exception) {
+                stopAll()
                 stopSelf()
             }
         }
         EndpointWorker.schedule(this)
         return START_STICKY
+    }
+
+    private fun stopAll() {
+        try {
+            hev?.stop()
+        } catch (_: Exception) { }
+        try {
+            ss?.stop()
+        } catch (_: Exception) { }
+        hev = null
+        ss = null
+        try {
+            tun?.close()
+        } catch (_: Exception) { }
+        tun = null
     }
 
     private fun startForegroundWithNotification() {
@@ -97,10 +116,7 @@ class ProxyVpnService : VpnService() {
 
     override fun onDestroy() {
         scope.cancel()
-        try {
-            tunnel.stop()
-        } catch (_: Exception) { }
-        tun?.close()
+        stopAll()
         EndpointWorker.cancel(this)
         super.onDestroy()
     }

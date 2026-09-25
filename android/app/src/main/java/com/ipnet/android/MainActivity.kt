@@ -44,6 +44,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tokenStatus: TextView
     private lateinit var uploadBtn: Button
     private lateinit var vpnBtn: Button
+    private lateinit var ipLabel: TextView
     private var pendingEndpoint: Triple<String, Int, Pair<String, String>>? = null
     private var pendingOwner: String = ""
     private var pendingRepo: String = ""
@@ -92,8 +93,9 @@ class MainActivity : AppCompatActivity() {
         uploadBtn.visibility = View.GONE
         mainSection.addView(uploadBtn)
         vpnBtn = action("تشغيل VPN") { startVpn() }
-        vpnBtn.visibility = View.GONE
         mainSection.addView(vpnBtn)
+        ipLabel = title("", 13f, true, "#15803D")
+        mainSection.addView(ipLabel)
         status = title("", 12f, false, "#9F2F2D")
         mainSection.addView(status)
         mainSection.addView(divider())
@@ -218,6 +220,8 @@ class MainActivity : AppCompatActivity() {
     private fun showMainScreen() {
         tokenSection.visibility = View.GONE
         mainSection.visibility = View.VISIBLE
+        refreshToggle()
+        if (isVpnUp()) fetchIp()
     }
 
     private fun showTokenScreen() {
@@ -330,7 +334,65 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ---------- 2. VPN + staying alive ----------
+    private fun isVpnUp(): Boolean {
+        return try {
+            val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            @Suppress("DEPRECATION")
+            am.getRunningServices(Int.MAX_VALUE).any {
+                it.service.className == ProxyVpnService::class.java.name
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun refreshToggle() {
+        vpnBtn.text = if (isVpnUp()) "إيقاف VPN" else "تشغيل VPN"
+    }
+
+    private fun fetchIp() {
+        lifecycleScope.launch {
+            try {
+                val ip = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val req = okhttp3.Request.Builder()
+                        .url("http://ip-api.com/json/?fields=status,country,query").build()
+                    okhttp3.OkHttpClient().newCall(req).execute().use { r ->
+                        r.body?.string().orEmpty()
+                    }
+                }
+                val j = org.json.JSONObject(ip)
+                if (j.optString("status") == "success") {
+                    ipLabel.text = "IP: ${j.optString("query")} (${j.optString("country")})"
+                } else {
+                    ipLabel.text = "IP: غير معروف"
+                }
+            } catch (_: Exception) {
+                ipLabel.text = "IP: تعذر الفحص"
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::vpnBtn.isInitialized && mainSection.visibility == View.VISIBLE) {
+            refreshToggle()
+            if (isVpnUp()) fetchIp()
+        }
+    }
+
     private fun startVpn() {
+        if (isVpnUp()) {
+            startService(Intent(this, ProxyVpnService::class.java).apply {
+                action = ProxyVpnService.ACTION_STOP
+            })
+            ipLabel.text = ""
+            lifecycleScope.launch {
+                kotlinx.coroutines.delay(800)
+                refreshToggle()
+            }
+            status.text = "اتوقف."
+            return
+        }
         val ep = pendingEndpoint ?: run {
             val c = Prefs.load(this)
             val h = c["host"].orEmpty()
@@ -363,7 +425,9 @@ class MainActivity : AppCompatActivity() {
             putExtra("ss_method", ep.third.second)
         }
         startForegroundService(i)
-        status.text = "VPN شغال — كل طلبات الجهاز طالعة أمريكي. الإيقاف من الإشعار."
+        status.text = "VPN شغال — كل طلبات الجهاز طالعة أمريكي. الإيقاف من هنا أو من الإشعار."
+        refreshToggle()
+        fetchIp()
     }
 
     private fun askIgnoreBattery() {
