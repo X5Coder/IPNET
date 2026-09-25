@@ -37,4 +37,24 @@ object Prefs {
     fun loadToken(ctx: Context): String =
         ctx.getSharedPreferences(F, Context.MODE_PRIVATE)
             .getString("gh_token", "").orEmpty()
+
+    fun saveLastRepo(ctx: Context, repo: String) {
+        ctx.getSharedPreferences(F, Context.MODE_PRIVATE).edit()
+            .putString("last_repo", repo).apply()
+    }
+
+    fun loadLastRepo(ctx: Context): String =
+        ctx.getSharedPreferences(F, Context.MODE_PRIVATE)
+            .getString("last_repo", "").orEmpty()
+
+    fun saveError(ctx: Context, msg: String) {
+        ctx.getSharedPreferences(F, Context.MODE_PRIVATE).edit()
+            .putString("last_error", msg).apply()
+    }
+
+    fun loadError(ctx: Context): String =
+        ctx.getSharedPreferences(F, Context.MODE_PRIVATE)
+            .getString("last_error", "").orEmpty()
+
+    fun clearError(ctx: Context) = saveError(ctx, "")
 }

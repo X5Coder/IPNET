@@ -52,6 +52,7 @@ class ProxyVpnService : VpnService() {
         scope.launch {
             try {
                 stopAll()
+                Prefs.clearError(this@ProxyVpnService)
                 tun = Builder()
                     .addAddress("10.8.0.2", 32)
                     .addRoute("0.0.0.0", 0)
@@ -68,7 +69,10 @@ class ProxyVpnService : VpnService() {
                 val confDir = File(filesDir, "bin").apply { mkdirs() }
                 val up = withContext(Dispatchers.IO) { h.start(confDir, fd) }
                 if (!up) throw RuntimeException("hev tunnel refused to start")
-            } catch (e: Exception) {
+            } catch (t: Throwable) {
+                // Never die silent: the app surfaces this text on next open.
+                Prefs.saveError(this@ProxyVpnService,
+                    t.message ?: t.javaClass.simpleName)
                 stopAll()
                 stopSelf()
             }

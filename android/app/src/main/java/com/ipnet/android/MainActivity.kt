@@ -87,6 +87,8 @@ class MainActivity : AppCompatActivity() {
         mainSection.addView(title("المستودع", 14f, true))
         mainSection.addView(title("مثال: SOMEONE/my-proxy", 11f, false, MUTED))
         repoInput = field("owner/repo أو رابط كامل", false)
+        val lastRepo = Prefs.loadLastRepo(this)
+        if (lastRepo.isNotEmpty()) repoInput.setText(lastRepo)
         mainSection.addView(repoInput)
         mainSection.addView(action("فحص وتشغيل") { checkRepo() })
         uploadBtn = action("رفع الكود وتشغيل") { uploadThenWait() }
@@ -279,6 +281,7 @@ class MainActivity : AppCompatActivity() {
         val (owner, repo) = parsed
         pendingOwner = owner
         pendingRepo = repo
+        Prefs.saveLastRepo(this, repoInput.text.toString().trim())
         uploadBtn.visibility = View.GONE
         vpnBtn.visibility = View.GONE
         status.text = "بفحص $owner/$repo من السيرفر مباشرة ..."
@@ -347,7 +350,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshToggle() {
-        vpnBtn.text = if (isVpnUp()) "إيقاف VPN" else "تشغيل VPN"
+        val up = isVpnUp()
+        vpnBtn.text = if (up) "إيقاف VPN" else "تشغيل VPN"
+        if (!up) {
+            val err = Prefs.loadError(this)
+            if (err.isNotEmpty()) status.text = "الخدمة وقفت: $err"
+        }
     }
 
     private fun fetchIp() {
@@ -425,9 +433,19 @@ class MainActivity : AppCompatActivity() {
             putExtra("ss_method", ep.third.second)
         }
         startForegroundService(i)
-        status.text = "VPN شغال — كل طلبات الجهاز طالعة أمريكي. الإيقاف من هنا أو من الإشعار."
-        refreshToggle()
-        fetchIp()
+        status.text = "بيشغل ... ثواني وبتأكد."
+        ipLabel.text = ""
+        lifecycleScope.launch {
+            kotlinx.coroutines.delay(3500)
+            refreshToggle()
+            if (isVpnUp()) {
+                status.text = "VPN شغال — كل طلبات الجهاز طالعة أمريكي. الإيقاف من هنا أو من الإشعار."
+                fetchIp()
+            } else {
+                val err = Prefs.loadError(this@MainActivity)
+                status.text = if (err.isNotEmpty()) "فشل التشغيل: $err" else "فشل التشغيل."
+            }
+        }
     }
 
     private fun askIgnoreBattery() {
