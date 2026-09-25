@@ -10,7 +10,6 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven("https://jitpack.io") // sing-box libbox AAR
     }
 }
 rootProject.name = "IPNET-Android"

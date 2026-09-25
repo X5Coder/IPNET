@@ -10,18 +10,20 @@ import android.os.ParcelFileDescriptor
 import kotlinx.coroutines.*
 
 /**
- * Device-level VPN: TUN interface -> sing-box Shadowsocks (USA via bore).
+ * Device-level VPN: TUN interface -> sslocal (TUN mode) -> USA via bore.
  *
- *  1. Builder(): address 10.8.0.2/32, route 0.0.0.0/0, DNS 1.1.1.1.
- *  2. LibboxTunnel drives libbox with a tun-in -> ss-out config and
- *     protect()s tunnel sockets so they bypass the TUN (no loop).
+ *  1. Builder(): address 10.8.0.2/32, route 0.0.0.0/0, DNS 1.1.1.1,
+ *     plus addDisallowedApplication(self) so the tunnel's own sockets
+ *     bypass the VPN (no routing loop, no per-socket protect needed).
+ *  2. SslocalTunnel writes the TUN fd number to a file and execs the
+ *     ~4MB sslocal binary with a JSON config (protocol=tun).
  *  3. EndpointWorker (WorkManager, 30 min) re-reads ss_url.txt and
  *     restarts us with the renewed port — mirrors desktop run_terminal.
  */
 class ProxyVpnService : VpnService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var tun: ParcelFileDescriptor? = null
-    private val tunnel = LibboxTunnel(this)
+    private lateinit var tunnel: SslocalTunnel
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForegroundWithNotification()
@@ -33,6 +35,7 @@ class ProxyVpnService : VpnService() {
             stopSelf()
             return START_NOT_STICKY
         }
+        tunnel = SslocalTunnel(this)
         Prefs.save(this, intent?.getStringExtra("owner") ?: Prefs.load(this)["owner"].orEmpty(),
             intent?.getStringExtra("repo") ?: Prefs.load(this)["repo"].orEmpty(),
             host, port, password, method)
@@ -44,12 +47,12 @@ class ProxyVpnService : VpnService() {
                     .addRoute("0.0.0.0", 0)
                     .addDnsServer("1.1.1.1")
                     .addDnsServer("8.8.8.8")
+                    .addDisallowedApplication(packageName)
                     .setSession("IPNET USA")
                     .setBlocking(true)
                     .establish()
                 val fd = tun ?: throw RuntimeException("TUN establish failed")
-                val cfg = tunnel.buildClientJson(fd.fd, host, port, password, method)
-                tunnel.start(cfg, fd)
+                tunnel.start(fd, host, port, password, method)
             } catch (e: Exception) {
                 stopSelf()
             }
@@ -76,7 +79,9 @@ class ProxyVpnService : VpnService() {
 
     override fun onDestroy() {
         scope.cancel()
-        tunnel.close()
+        try {
+            tunnel.close()
+        } catch (_: Exception) { }
         tun?.close()
         EndpointWorker.cancel(this)
         super.onDestroy()

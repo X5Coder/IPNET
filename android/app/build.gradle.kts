@@ -49,7 +49,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("androidx.browser:browser:1.8.0") // Custom Tabs for OAuth
     implementation("androidx.work:work-runtime-ktx:2.9.0") // endpoint watcher
-    // sing-box data plane (gomobile AAR). Pinned to 1.14.x to match
-    // the server workflow (SB 1.14.2): same Shadowsocks behavior both ends.
-    implementation("com.github.singbox-android:libbox:1.14.0")
+    // Data plane = sslocal native binary (~4MB, built in CI from
+    // shadowsocks-rust). No giant AAR, so the APK stays ~10-15MB.
 }
