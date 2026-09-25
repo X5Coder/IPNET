@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
@@ -63,10 +64,10 @@ object AuthManager {
     }
 
     /** Poll until authorized. Returns token or throws. Call from a coroutine. */
-    suspend fun pollToken(deviceCode: String, intervalSec: Long): String =
-        withContext(Dispatchers.IO) {
-            while (true) {
-                Thread.sleep(intervalSec * 1000)
+    suspend fun pollToken(deviceCode: String, intervalSec: Long): String {
+        while (true) {
+            delay(intervalSec * 1000)
+            val json = withContext(Dispatchers.IO) {
                 val body = FormBody.Builder()
                     .add("client_id", CLIENT_ID)
                     .add("device_code", deviceCode)
@@ -74,13 +75,14 @@ object AuthManager {
                     .build()
                 val req = Request.Builder().url(TOKEN_URL)
                     .post(body).header("Accept", "application/json").build()
-                val json = JSONObject(http.newCall(req).execute().body!!.string())
-                if (json.has("access_token")) return@withContext json.getString("access_token")
-                val err = json.optString("error")
-                if (err == "authorization_pending" || err == "slow_down") continue
-                throw RuntimeException("OAuth failed: $err")
+                JSONObject(http.newCall(req).execute().body!!.string())
             }
+            if (json.has("access_token")) return json.getString("access_token")
+            val err = json.optString("error")
+            if (err == "authorization_pending" || err == "slow_down") continue
+            throw RuntimeException("OAuth failed: $err")
         }
+    }
 
     fun tokenIntent(context: Context): Intent =
         Intent(context, MainActivity::class.java)
