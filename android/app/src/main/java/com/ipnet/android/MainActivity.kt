@@ -21,6 +21,8 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 
@@ -49,6 +51,9 @@ class MainActivity : AppCompatActivity() {
     private var pendingEndpoint: Triple<String, Int, Pair<String, String>>? = null
     private var pendingOwner: String = ""
     private var pendingRepo: String = ""
+    private lateinit var vpnConsent: ActivityResultLauncher<Intent>
+    @Volatile
+    private var consentReturned = false
 
     private val INK = "#111111"
     private val MUTED = "#787774"
@@ -56,6 +61,16 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        vpnConsent = registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()) { res ->
+            consentReturned = true
+            Prefs.trace(this, "consent result=${res.resultCode}")
+            if (res.resultCode == Activity.RESULT_OK) {
+                pendingEndpoint?.let { launchVpn(it) }
+            } else {
+                status.text = "الموافقة اترفضت أو النافذة متقفلتش صح — دوس تشغيل ووافق بـ OK."
+            }
+        }
         val root = ScrollView(this).apply { setBackgroundColor(Color.parseColor("#FBFBFA")) }
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -457,8 +472,23 @@ class MainActivity : AppCompatActivity() {
         val intent = VpnService.prepare(this)
         if (intent != null) {
             Prefs.trace(this, "prepare: consent needed")
-            startActivityForResult(intent, 100)
+            consentReturned = false
+            try {
+                vpnConsent.launch(intent)
+                Prefs.trace(this, "consent dialog launched")
+            } catch (e: Exception) {
+                Prefs.trace(this, "consent launch failed: ${e.message}")
+                status.text = "مش عارف أفتح نافذة الموافقة: ${e.message}"
+                return
+            }
             pendingEndpoint = ep
+            status.text = "وافق على نافذة اتصال VPN اللي هتظهر (دوس OK)."
+            lifecycleScope.launch {
+                kotlinx.coroutines.delay(6000)
+                if (!consentReturned && !isVpnUp()) {
+                    status.text = "مفيش رد من نافذة الموافقة — لو مظهرتش خالص: اقفل أي VPN تاني شغال وجرب تاني."
+                }
+            }
             return
         }
         Prefs.trace(this, "prepare: granted, launching")
@@ -516,14 +546,6 @@ class MainActivity : AppCompatActivity() {
             status.text = "فعّل Always-on على IPNET من القائمة."
         } catch (e: Exception) {
             status.text = "افتح إعدادات VPN يدوياً وفعّل Always-on."
-        }
-    }
-
-    @Deprecated("legacy")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 100 && resultCode == Activity.RESULT_OK) {
-            pendingEndpoint?.let { launchVpn(it) }
         }
     }
 }
