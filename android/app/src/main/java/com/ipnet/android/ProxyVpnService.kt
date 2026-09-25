@@ -20,6 +20,9 @@ import java.io.File
  *  3. hev-socks5-tunnel (IN-PROCESS JNI, fd passed as int — the only
  *     way a TUN fd can be shared) pumps TUN <-> SOCKS, TCP+UDP.
  *  4. EndpointWorker (WorkManager, 30 min) restarts us on renewal.
+ *
+ * Every step writes to the Prefs trace so the diagnostics screen shows
+ * exactly where a start died — no logcat needed.
  */
 class ProxyVpnService : VpnService() {
     companion object {
@@ -31,18 +34,29 @@ class ProxyVpnService : VpnService() {
     private var ss: SslocalTunnel? = null
     private var hev: HevTunnel? = null
 
+    private fun tr(s: String) = Prefs.trace(this, s)
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        tr("onStart action=${intent?.action}")
         if (intent?.action == ACTION_STOP) {
             stopAll()
             stopSelf()
             return START_NOT_STICKY
         }
-        startForegroundWithNotification()
+        try {
+            startForegroundWithNotification()
+            tr("foreground ok")
+        } catch (t: Throwable) {
+            Prefs.saveError(this, "notification: ${t.message}")
+            stopSelf()
+            return START_NOT_STICKY
+        }
         val host = intent?.getStringExtra("ss_host").orEmpty()
         val port = intent?.getIntExtra("ss_port", 0) ?: 0
         val password = intent?.getStringExtra("ss_password").orEmpty()
         val method = intent?.getStringExtra("ss_method") ?: "aes-256-gcm"
         if (host.isEmpty() || port == 0 || password.isEmpty()) {
+            Prefs.saveError(this, "empty extras")
             stopSelf()
             return START_NOT_STICKY
         }
@@ -53,6 +67,7 @@ class ProxyVpnService : VpnService() {
             try {
                 stopAll()
                 Prefs.clearError(this@ProxyVpnService)
+                tr("building TUN")
                 tun = Builder()
                     .addAddress("10.8.0.2", 32)
                     .addRoute("0.0.0.0", 0)
@@ -62,17 +77,21 @@ class ProxyVpnService : VpnService() {
                     .setSession("IPNET USA")
                     .setBlocking(true)
                     .establish()
-                val fd = tun ?: throw RuntimeException("TUN establish failed")
+                val fd = tun ?: throw RuntimeException("TUN establish=null")
+                tr("TUN fd=${fd.fd}")
                 val ssl = SslocalTunnel(this@ProxyVpnService).also { ss = it }
                 ssl.start(host, port, password, method)
+                tr("ss-local alive")
                 val h = HevTunnel().also { hev = it }
                 val confDir = File(filesDir, "bin").apply { mkdirs() }
+                tr("hev starting")
                 val up = withContext(Dispatchers.IO) { h.start(confDir, fd) }
-                if (!up) throw RuntimeException("hev tunnel refused to start")
+                tr("hev returned=$up")
+                if (!up) throw RuntimeException("hev refused")
             } catch (t: Throwable) {
-                // Never die silent: the app surfaces this text on next open.
                 Prefs.saveError(this@ProxyVpnService,
                     t.message ?: t.javaClass.simpleName)
+                tr("DIED: ${t.javaClass.simpleName}: ${t.message}")
                 stopAll()
                 stopSelf()
             }

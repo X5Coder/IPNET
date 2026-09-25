@@ -57,4 +57,22 @@ object Prefs {
             .getString("last_error", "").orEmpty()
 
     fun clearError(ctx: Context) = saveError(ctx, "")
+
+    /** Step-by-step startup trace (survives death, shown in diagnostics). */
+    fun trace(ctx: Context, step: String) {
+        val p = ctx.getSharedPreferences(F, Context.MODE_PRIVATE)
+        val old = p.getString("trace", "").orEmpty()
+        val line = "${android.text.format.DateFormat.format("HH:mm:ss", System.currentTimeMillis())} $step"
+        val combined = (old + "\n" + line).split("\n").takeLast(25).joinToString("\n")
+        p.edit().putString("trace", combined).apply()
+    }
+
+    fun loadTrace(ctx: Context): String =
+        ctx.getSharedPreferences(F, Context.MODE_PRIVATE)
+            .getString("trace", "").orEmpty()
+
+    fun clearTrace(ctx: Context) {
+        ctx.getSharedPreferences(F, Context.MODE_PRIVATE).edit()
+            .putString("trace", "").apply()
+    }
 }

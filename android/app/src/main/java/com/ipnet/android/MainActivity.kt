@@ -414,6 +414,8 @@ class MainActivity : AppCompatActivity() {
             out.append("ss-local: مفقود!\n")
         }
         out.append("آخر خطأ: ${Prefs.loadError(this).ifEmpty { "لا يوجد" }}")
+        val trace = Prefs.loadTrace(this)
+        if (trace.isNotEmpty()) out.append("\n--- التتبع ---\n$trace")
         diagLabel.text = out.toString()
     }
 
@@ -426,6 +428,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startVpn() {
+        Prefs.trace(this, "button pressed")
         if (isVpnUp()) {
             startService(Intent(this, ProxyVpnService::class.java).apply {
                 action = ProxyVpnService.ACTION_STOP
@@ -453,10 +456,12 @@ class MainActivity : AppCompatActivity() {
         }
         val intent = VpnService.prepare(this)
         if (intent != null) {
+            Prefs.trace(this, "prepare: consent needed")
             startActivityForResult(intent, 100)
             pendingEndpoint = ep
             return
         }
+        Prefs.trace(this, "prepare: granted, launching")
         launchVpn(ep)
     }
 
