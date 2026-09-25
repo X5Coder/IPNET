@@ -45,6 +45,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var uploadBtn: Button
     private lateinit var vpnBtn: Button
     private lateinit var ipLabel: TextView
+    private lateinit var diagLabel: TextView
     private var pendingEndpoint: Triple<String, Int, Pair<String, String>>? = null
     private var pendingOwner: String = ""
     private var pendingRepo: String = ""
@@ -98,6 +99,9 @@ class MainActivity : AppCompatActivity() {
         mainSection.addView(vpnBtn)
         ipLabel = title("", 13f, true, "#15803D")
         mainSection.addView(ipLabel)
+        mainSection.addView(action("فحص المكونات") { runDiagnostics() })
+        diagLabel = title("", 11f, false, MUTED)
+        mainSection.addView(diagLabel)
         status = title("", 12f, false, "#9F2F2D")
         mainSection.addView(status)
         mainSection.addView(divider())
@@ -380,6 +384,39 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** On-device diagnostics: everything we need, no logcat required. */
+    private fun runDiagnostics() {
+        val out = StringBuilder()
+        try {
+            @Suppress("DEPRECATION")
+            val pi = packageManager.getPackageInfo(packageName, 0)
+            @Suppress("DEPRECATION")
+            out.append("النسخة: ${pi.versionName} (${pi.versionCode})\n")
+        } catch (_: Exception) {
+            out.append("النسخة: ؟\n")
+        }
+        out.append("التوكن: ${if (Prefs.loadToken(this).isNotEmpty()) "محفوظ ✓" else "مفقود"}\n")
+        out.append("الريبو: ${Prefs.loadLastRepo(this).ifEmpty { "مفقود" }}\n")
+        val c = Prefs.load(this)
+        val ep = (c["host"].orEmpty() + ":" + c["port"].orEmpty()).trim(':')
+        out.append("Endpoint محفوظ: ${ep.ifEmpty { "مفقود" }}\n")
+        out.append("الخدمة: ${if (isVpnUp()) "شغالة" else "واقفة"}\n")
+        try {
+            System.loadLibrary("hev-socks5-tunnel")
+            out.append("hev: يتحمل ✓\n")
+        } catch (t: Throwable) {
+            out.append("hev: فشل (${t.message})\n")
+        }
+        try {
+            assets.open("bin/arm64-v8a/sslocal").close()
+            out.append("ss-local: موجود ✓\n")
+        } catch (_: Exception) {
+            out.append("ss-local: مفقود!\n")
+        }
+        out.append("آخر خطأ: ${Prefs.loadError(this).ifEmpty { "لا يوجد" }}")
+        diagLabel.text = out.toString()
+    }
+
     override fun onResume() {
         super.onResume()
         if (::vpnBtn.isInitialized && mainSection.visibility == View.VISIBLE) {
@@ -432,7 +469,12 @@ class MainActivity : AppCompatActivity() {
             putExtra("ss_password", ep.third.first)
             putExtra("ss_method", ep.third.second)
         }
-        startForegroundService(i)
+        try {
+            startForegroundService(i)
+        } catch (e: Exception) {
+            status.text = "رفض النظام التشغيل: ${e.message}"
+            return
+        }
         status.text = "بيشغل ... ثواني وبتأكد."
         ipLabel.text = ""
         lifecycleScope.launch {
