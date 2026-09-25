@@ -6,37 +6,6 @@ on:
     paths:
       - "android/**"
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: android
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
-
-      - name: Build debug APK
-        run: gradle :app:assembleDebug --no-daemon
-
-name: Android APK (cloud build)
-
-on:
-  workflow_dispatch:
-  push:
-    paths:
-      - "android/**"
-
 permissions:
   contents: write
 
