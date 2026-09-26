@@ -30,7 +30,9 @@ import urllib.error
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.2.0"
+APP_VERSION = "v1.3.0"
+TEMPLATE_URL = "https://github.com/X5Coder/proxy-usa"
+APP_AUTHOR = "X5Coder"
 API = "https://api.github.com"
 RAW = "https://raw.githubusercontent.com"
 SB_VERSION = "1.14.2"
@@ -160,31 +162,8 @@ def save_config(cfg):
 
 
 def api_token(cfg):
-    """Saved token for private-repo reads (empty for public repos)."""
+    """Kept for compatibility (public-only builds carry no token)."""
     return cfg.get("token") or ""
-
-
-def api_file(owner, repo, token, path):
-    """Fresh file content via Contents API (no CDN cache).
-    Returns text, '' when truly absent (404), raises on auth/rate errors."""
-    code, data = api_req("GET",
-                         f"{API}/repos/{owner}/{repo}/contents/{path}?ref=main",
-                         token)
-    if code == 404:
-        return ""
-    if code == 403 and "rate limit" in str(data.get("error", "")).lower():
-        raise RuntimeError("GitHub rate limit - try again in a minute.")
-    if code == 401:
-        raise RuntimeError("Token rejected (401) - check it and retry.")
-    if code != 200:
-        raise RuntimeError(f"Cannot read {path} (HTTP {code}).")
-    try:
-        content = (data.get("content") or "").replace("\n", "")
-        if not content:
-            return ""
-        return base64.b64decode(content).decode("utf-8", "ignore")
-    except Exception:
-        return ""
 
 
 def api_req(method, url, token, payload=None):
@@ -289,52 +268,31 @@ def fetch_public_repo_snapshot(owner, repo):
             "password": password, "method": method, "has_code": has_code}
 
 
-def setup_attach(repo_text, token, log):
-    """Follow-only attach (v1.2.0: no upload, no login).
-    - Public repo: pull endpoint+password from public files, no token.
-    - Private repo: same via Contents API using the pasted token.
+def setup_attach(repo_text, log):
+    """Follow-only attach (public repos only, no login, no token).
+    Pulls endpoint+password from the repo's public files and saves them.
     Raises RuntimeError with a plain message when there is nothing
-    usable yet (empty repo / still building / wrong link)."""
+    usable yet (wrong link / still building / code missing)."""
     parsed = parse_repo_url(repo_text or "")
     if not parsed:
         raise RuntimeError("Paste a repo link, e.g. https://github.com/YOU/my-proxy")
     owner, repo = parsed
-    token = (token or "").strip()
     log(f"Checking {owner}/{repo} ...")
-    if token:
-        snap = {"endpoint": "", "password": "", "method": SS_METHOD,
-                "has_code": False}
-        singbox = api_file(owner, repo, token, "singbox-server.json")
-        workflow = api_file(owner, repo, token, ".github/workflows/proxy.yml")
-        snap["has_code"] = bool(singbox or workflow)
-        server_text = ""
-        if not snap["has_code"]:
-            server_text = api_file(owner, repo, token, "server.py")
-            snap["has_code"] = bool(server_text and "proxy" in server_text.lower())
-        snap["password"], snap["method"] = extract_password_from_repo_text(
-            singbox, workflow, server_text)
-        ss = api_file(owner, repo, token, "ss_url.txt").strip()
-        bore = api_file(owner, repo, token, "bore_url.txt").strip()
-        if re.match(r"bore\.pub:\d+", ss):
-            snap["endpoint"] = ss
-        elif re.match(r"bore\.pub:\d+", bore):
-            snap["endpoint"] = bore
-    else:
-        snap = fetch_public_repo_snapshot(owner, repo)
+    snap = fetch_public_repo_snapshot(owner, repo)
     if not snap["has_code"]:
-        raise RuntimeError("No proxy code in this repo yet (empty or private "
-                           "without token?). Upload the bundle first, or paste "
-                           "a token for private repos.")
+        raise RuntimeError("No proxy code in this repo yet. Create it from the "
+                           "template first (Step 1), then paste its link here.")
     if not snap["password"]:
-        raise RuntimeError("Code found but password unreadable - re-upload the bundle.")
+        raise RuntimeError("Code found but password unreadable - recreate from template.")
     cfg = {"owner": owner, "repo": repo, "password": snap["password"],
            "method": snap.get("method") or SS_METHOD,
-           "token": token, "attached": True, "readonly": True}
+           "attached": True, "readonly": True}
     save_config(cfg)
     if snap["endpoint"]:
         log(f"Attached! Live endpoint: {snap['endpoint']}")
     else:
-        log("Attached! Server still building - picked up automatically.")
+        log("Attached! First run still building - open the repo Actions tab, "
+            "run USA Proxy once, and the app picks it up automatically.")
     return cfg
 
 
@@ -342,7 +300,6 @@ def gui_setup(error_msg=""):
     """IPNET setup window. Editorial minimalism: warm white, off-black type,
     hairline dividers, one solid CTA. Returns cfg or None if closed."""
     import tkinter as tk
-    from tkinter import filedialog
     result = {}
 
     # DPI awareness: without this Windows bitmap-scales the window (blurry)
@@ -598,11 +555,36 @@ def gui_setup(error_msg=""):
     saved_link = ""
     if saved_cfg.get("owner") and saved_cfg.get("repo"):
         saved_link = f"https://github.com/{saved_cfg['owner']}/{saved_cfg['repo']}"
-    saved_token = saved_cfg.get("token", "")
 
-    tk.Label(wrap, text="1  —  Repo link", bg=PAPER, fg=INK,
+    tk.Label(wrap, text="1  —  Make your own copy (once)", bg=PAPER, fg=INK,
              font=("Segoe UI", 9, "bold")).pack(anchor="w")
-    tk.Label(wrap, text="Paste your proxy repo link (from CONNECT.md).",
+    tk.Label(wrap, text="Open the original repo, press \"Use this template\", "
+                        "create yours. Click the link to copy it.",
+             bg=PAPER, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 2))
+    LINK_BG, LINK_FG = "#EFF6FF", "#1D4ED8"
+    link_card = tk.Frame(wrap, bg=LINK_BG, highlightthickness=1,
+                         highlightbackground="#BFDBFE")
+    link_card.pack(fill="x", pady=3)
+    link_lbl = tk.Label(link_card, text=TEMPLATE_URL,
+                        bg=LINK_BG, fg=LINK_FG, cursor="hand2",
+                        font=("Consolas", 9, "underline"))
+    link_lbl.pack(side="left", padx=10, pady=8)
+    hint_lbl = tk.Label(link_card, text="Click to copy",
+                        bg=LINK_BG, fg="#60A5FA", font=("Segoe UI", 8))
+    hint_lbl.pack(side="right", padx=10)
+
+    def _copy_template(_evt=None):
+        copy_text(TEMPLATE_URL, "Link copied!")
+
+    for _w in (link_card, link_lbl, hint_lbl):
+        _w.bind("<Button-1>", _copy_template)
+        _w.configure(cursor="hand2")
+    hairline()
+
+    tk.Label(wrap, text="2  —  Your new repo link", bg=PAPER, fg=INK,
+             font=("Segoe UI", 9, "bold")).pack(anchor="w")
+    tk.Label(wrap, text="Paste YOUR copy's link here, then Start. It is checked "
+                        "first, then Chrome opens through the USA IP.",
              bg=PAPER, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 2))
     repo_var = tk.StringVar(value=saved_link)
     tk.Entry(wrap, textvariable=repo_var, bg=FIELD, fg=INK, relief="solid",
@@ -611,47 +593,7 @@ def gui_setup(error_msg=""):
              insertbackground=INK).pack(fill="x", pady=3)
     hairline()
 
-    tk.Label(wrap, text="2  —  Token (private repos only)", bg=PAPER, fg=INK,
-             font=("Segoe UI", 9, "bold")).pack(anchor="w")
-    tk.Label(wrap, text="Leave empty for public repos.",
-             bg=PAPER, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 2))
-    token_var = tk.StringVar(value=saved_token)
-    tk.Entry(wrap, textvariable=token_var, show="•", bg=FIELD, fg=INK, relief="solid",
-             borderwidth=1, highlightthickness=1, highlightcolor=INK,
-             highlightbackground=HAIR, font=("Consolas", 9),
-             insertbackground=INK).pack(fill="x", pady=3)
-    hairline()
-
-    tk.Label(wrap, text="3  —  Storage folder", bg=PAPER, fg=INK,
-             font=("Segoe UI", 9, "bold")).pack(anchor="w")
-    tk.Label(wrap, text="Leave it, or Browse to choose another folder.",
-             bg=PAPER, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 2))
-    row = tk.Frame(wrap, bg=PAPER)
-    row.pack(fill="x", pady=3)
-    path_var = tk.StringVar(value=get_data_dir())
-    tk.Entry(row, textvariable=path_var, bg=FIELD, fg=INK, relief="solid",
-             borderwidth=1, highlightthickness=1, highlightcolor=INK,
-             highlightbackground=HAIR, font=("Consolas", 8),
-             insertbackground=INK).pack(side="left", fill="x", expand=True,
-                                        padx=(0, 8))
-
-    def on_browse():
-        d = filedialog.askdirectory(title="IPNET storage folder",
-                                    initialdir=path_var.get() or get_data_dir())
-        if d:
-            path_var.set(d)
-
-    browse_btn = RoundedButton(row, text="Browse", command=on_browse,
-                               width=110, height=34, radius=10,
-                               bg=PAPER, fg=INK,
-                               normal="#FFFFFF", hover="#F3F4F6",
-                               pressed="#E5E7EB", disabled="#F3F4F6",
-                               font=("Segoe UI", 9, "bold"),
-                               border=1, border_color="#E0E0E0")
-    browse_btn.pack(side="right")
-    hairline()
-
-    tk.Label(wrap, text="Paste the link, press Start. No login, no tokens (public repos).",
+    tk.Label(wrap, text="Paste the link, press Start. No login, no tokens.",
              bg=PAPER, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 12))
 
     status = tk.StringVar(value=error_msg)
@@ -682,18 +624,16 @@ def gui_setup(error_msg=""):
         if not link:
             status.set("Paste your repo link first.")
             return
-        tok = (token_var.get() or "").strip()
-        d = (path_var.get() or "").strip() or get_data_dir()
         enabled["v"] = False
         btn.set_enabled(False)
         try:
-            set_data_dir(d)
+            set_data_dir(get_data_dir())
         except Exception as e:
-            status.set(f"Cannot use that folder: {e}")
+            status.set(f"Cannot use storage folder: {e}")
             enabled["v"] = True
             btn.set_enabled(True)
             return
-        status.set("Reading the repo ...")
+        status.set("Checking the repo ...")
         pb.pack(fill="x", pady=(0, 4))
         pb.start(12)
 
@@ -707,7 +647,7 @@ def gui_setup(error_msg=""):
 
         root.update()
         try:
-            cfg = setup_attach(link, tok, log)
+            cfg = setup_attach(link, log)
             result["cfg"] = cfg
             status.set("Ready! Starting ...")
             pb.stop()
@@ -728,7 +668,9 @@ def gui_setup(error_msg=""):
             btn.set_enabled(True)
 
     tk.Frame(wrap, bg=HAIR, height=1).pack(fill="x", pady=(10, 8))
-    tk.Label(wrap, text=f"{APP_NAME} {APP_VERSION}", bg=PAPER, fg=MUTED,
+    tk.Label(wrap, text=f"{APP_NAME} {APP_VERSION} — by {APP_AUTHOR}", bg=PAPER, fg=MUTED,
+             font=("Consolas", 8)).pack(anchor="center")
+    tk.Label(wrap, text="Original: github.com/X5Coder/proxy-usa", bg=PAPER, fg=MUTED,
              font=("Consolas", 8)).pack(anchor="center")
     root.mainloop()
     return result.get("cfg")
@@ -789,23 +731,7 @@ def find_chrome():
 
 
 def fetch_endpoint(cfg):
-    # Fresh first: Contents API has no CDN cache (raw.githubusercontent
-    # can serve a stale ss_url.txt for minutes after a heal).
-    token = api_token(cfg)
-    if token:
-        for name in ("ss_url.txt", "bore_url.txt"):
-            try:
-                code, data = api_req(
-                    "GET",
-                    f"{API}/repos/{cfg['owner']}/{cfg['repo']}"
-                    f"/contents/{name}?ref=main", token)
-                if code == 200 and isinstance(data, dict) and data.get("content"):
-                    v = base64.b64decode(data["content"]).decode(
-                        "utf-8", "ignore").strip()
-                    if v and re.match(r"bore\.pub:\d+", v):
-                        return name, v
-            except Exception:
-                pass
+    # Public raw files: ss_url.txt preferred, bore_url.txt fallback.
     for name in ("ss_url.txt", "bore_url.txt"):
         v = raw_get(f"{RAW}/{cfg['owner']}/{cfg['repo']}/main/{name}")
         if v and re.match(r"bore\.pub:\d+", v):
