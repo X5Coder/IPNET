@@ -18,12 +18,23 @@ Developer: **X5Coder** — Original repo: `https://github.com/X5Coder/proxy-usa`
 2. Paste **your repo link** → **Start** → Chrome opens via USA IP.
 3. Every launch: same screen (link saved) → Start.
 
-## 3. Android (v2rayNG)
+## 3. Android (v2rayNG) — step by step
 
 1. Install **v2rayNG** — tap to download directly ([v2rayNG_2.2.6 `arm64-v8a`](https://github.com/2dust/v2rayNG/releases/download/2.2.6/v2rayNG_2.2.6_arm64-v8a.apk)).
-2. Menu → Subscription settings → + → paste the `sub.txt` URL from your repo's `README.md`.
-3. Update subscription → select **IPNET-USA** → connect (allow VPN).
-4. Check `ipinfo.io` → United States.
+2. Top-left menu → **Subscription group setting** → **+**, fill exactly:
+   - **remarks**: any name, e.g. `IPNET`.
+   - **Optional URL**: your subscription link, e.g.
+     `https://raw.githubusercontent.com/YOU/YOUR-REPO/main/sub.txt`
+     (replace `YOU/YOUR-REPO` — the exact link is in your repo's `README.md`).
+   - **Enable update**: ON.
+   - **Enable automatic update**: ON, interval `60`.
+   - Leave the rest → press **✓** (top right) to save.
+3. Back on the main screen → **⋮** menu → **Update subscription** → server `IPNET-USA` appears.
+4. Tap the server to select it → press **▶** (bottom right) → allow VPN.
+5. Open `ipinfo.io` → United States.
+6. No internet despite connected? Settings → find **Remote DNS** → set
+   `https://1.1.1.1/dns-query` → reconnect. Later disconnects? **⋮** →
+   **Update subscription** → connect again (5 seconds).
 
 ## How it works
 
