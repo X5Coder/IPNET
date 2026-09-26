@@ -100,24 +100,17 @@ jobs:
             LINK="ss://${USERINFO}@${SS_HOST}:${SS_PORT}#IPNET-USA"
             printf '%s' "$LINK" > android-ss.txt
             printf '%s' "$LINK" | base64 -w0 > sub.txt
-            # CONNECT.md: the ONE human page (copy blocks + steps). sub.txt
-            # stays the ONE machine link (pure, app-compatible).
-            {
-              printf '# IPNET — اتصال جاهز (Windows + Android)\n\n'
-              printf 'Repo: https://github.com/%s\n\n' "$GITHUB_REPOSITORY"
-              printf '## 1) رابط واحد للتطبيقات (ثابت للأبد)\n\n'
-              printf '```\nhttps://raw.githubusercontent.com/%s/main/sub.txt\n```\n' "$GITHUB_REPOSITORY"
-              printf 'حطه في v2rayNG/NekoBox كـ Subscription وهيتحدث لوحده.\n\n'
-              printf '## 2) رابط مباشر (نسخ/QR)\n\n'
-              printf '```\n%s\n```\n\n' "$LINK"
-              printf '## 3) ويندوز: برنامج IPNET\n\n'
-              printf 'حمّل IPNET.exe من الريليز، الصق رابط الريبو ده، دوس Start.\n\n'
-              printf '```\nhttps://github.com/%s\n```\n' "$GITHUB_REPOSITORY"
-              printf '## 4) اندرويد: v2rayNG\n\n'
-              printf '1. ثبت v2rayNG (نسخة arm64-v8a).\n'
-              printf '2. القائمة <- Subscription <- اضف رابط sub.txt فوق.\n'
-              printf '3. حدث الاشتراك <- اختر IPNET-USA <- اتصل.\n'
-            } > CONNECT.md
+          }
+          update_readme() {
+            # Live block goes INSIDE the normal README (no separate file).
+            # Needs <!--IPNET-LIVE-START--> / <!--IPNET-LIVE-END--> markers
+            # (shipped in USER_README.md); appends them if ever missing.
+            [ -z "$LINK" ] && return 0
+            export IPNET_LINK="$LINK"
+            export IPNET_SUB="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/sub.txt"
+            export IPNET_REPO="https://github.com/$GITHUB_REPOSITORY"
+            python3 -c 'import os,re; block=("<!--IPNET-LIVE-START-->\n## Live connection (auto-updated, copy from here)\n\n- Repo: "+os.environ["IPNET_REPO"]+"\n\n- Direct link (copy/QR):\n```\n"+os.environ["IPNET_LINK"]+"\n```\n\n- Subscription (fixed forever, auto-updates):\n```\n"+os.environ["IPNET_SUB"]+"\n```\n<!--IPNET-LIVE-END-->"); s=open("README.md",encoding="utf-8").read(); pat=re.compile(r"<!--IPNET-LIVE-START-->.*?<!--IPNET-LIVE-END-->",re.S); s=pat.sub(block,s,count=1) if pat.search(s) else s+"\n"+block+"\n"; open("README.md","w",encoding="utf-8").write(s); print("README live block updated")'
+            git rm --quiet CONNECT.md 2>/dev/null || true
           }
           echo "Starting bore tunnels ..."
           rm -f /tmp/bore.log /tmp/bore-ss.log
@@ -140,10 +133,11 @@ jobs:
           } | tee /tmp/urls.txt
           cat /tmp/urls.txt > proxy_urls.txt
           make_sub
+          update_readme
           git config user.name "proxy-bot"
           git config user.email "bot@proxy.usa"
           git pull --rebase || true
-          git add bore_url.txt ss_url.txt proxy_urls.txt android-ss.txt sub.txt CONNECT.md || true
+          git add bore_url.txt ss_url.txt proxy_urls.txt android-ss.txt sub.txt README.md || true
           git commit -m "update bore $URL ss $SS_URL" || true
           git push || true
           echo "### HTTP_PROXY: $URL" >> $GITHUB_STEP_SUMMARY
@@ -189,31 +183,24 @@ jobs:
             LINK="ss://${USERINFO}@${SS_HOST}:${SS_PORT}#IPNET-USA"
             printf '%s' "$LINK" > android-ss.txt
             printf '%s' "$LINK" | base64 -w0 > sub.txt
-            # CONNECT.md: the ONE human page (copy blocks + steps). sub.txt
-            # stays the ONE machine link (pure, app-compatible).
-            {
-              printf '# IPNET — اتصال جاهز (Windows + Android)\n\n'
-              printf 'Repo: https://github.com/%s\n\n' "$GITHUB_REPOSITORY"
-              printf '## 1) رابط واحد للتطبيقات (ثابت للأبد)\n\n'
-              printf '```\nhttps://raw.githubusercontent.com/%s/main/sub.txt\n```\n' "$GITHUB_REPOSITORY"
-              printf 'حطه في v2rayNG/NekoBox كـ Subscription وهيتحدث لوحده.\n\n'
-              printf '## 2) رابط مباشر (نسخ/QR)\n\n'
-              printf '```\n%s\n```\n\n' "$LINK"
-              printf '## 3) ويندوز: برنامج IPNET\n\n'
-              printf 'حمّل IPNET.exe من الريليز، الصق رابط الريبو ده، دوس Start.\n\n'
-              printf '```\nhttps://github.com/%s\n```\n' "$GITHUB_REPOSITORY"
-              printf '## 4) اندرويد: v2rayNG\n\n'
-              printf '1. ثبت v2rayNG (نسخة arm64-v8a).\n'
-              printf '2. القائمة <- Subscription <- اضف رابط sub.txt فوق.\n'
-              printf '3. حدث الاشتراك <- اختر IPNET-USA <- اتصل.\n'
-            } > CONNECT.md
+          }
+          update_readme() {
+            # Live block goes INSIDE the normal README (no separate file).
+            # Needs <!--IPNET-LIVE-START--> / <!--IPNET-LIVE-END--> markers
+            # (shipped in USER_README.md); appends them if ever missing.
+            [ -z "$LINK" ] && return 0
+            export IPNET_LINK="$LINK"
+            export IPNET_SUB="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/sub.txt"
+            export IPNET_REPO="https://github.com/$GITHUB_REPOSITORY"
+            python3 -c 'import os,re; block=("<!--IPNET-LIVE-START-->\n## Live connection (auto-updated, copy from here)\n\n- Repo: "+os.environ["IPNET_REPO"]+"\n\n- Direct link (copy/QR):\n```\n"+os.environ["IPNET_LINK"]+"\n```\n\n- Subscription (fixed forever, auto-updates):\n```\n"+os.environ["IPNET_SUB"]+"\n```\n<!--IPNET-LIVE-END-->"); s=open("README.md",encoding="utf-8").read(); pat=re.compile(r"<!--IPNET-LIVE-START-->.*?<!--IPNET-LIVE-END-->",re.S); s=pat.sub(block,s,count=1) if pat.search(s) else s+"\n"+block+"\n"; open("README.md","w",encoding="utf-8").write(s); print("README live block updated")'
+            git rm --quiet CONNECT.md 2>/dev/null || true
           }
           push_urls() {
             make_sub
             git config user.name "proxy-bot" || true
             git config user.email "bot@proxy.usa" || true
             git pull --rebase || true
-            git add bore_url.txt ss_url.txt proxy_urls.txt android-ss.txt sub.txt CONNECT.md || true
+            git add bore_url.txt ss_url.txt proxy_urls.txt android-ss.txt sub.txt README.md || true
             git commit -m "update bore $1 ss $2 (auto-heal)" || true
             git push || true
           }
