@@ -469,6 +469,38 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun startSocks() {
+        val ep = pendingEndpoint ?: run {
+            val c = Prefs.load(this)
+            val h = c["host"].orEmpty()
+            val p = c["port"]?.toIntOrNull() ?: 0
+            val pw = c["password"].orEmpty()
+            if (h.isEmpty() || p == 0 || pw.isEmpty()) {
+                status.text = "مفيش endpoint محفوظ — اعمل فحص الأول."
+                return
+            }
+            pendingOwner = c["owner"].orEmpty()
+            pendingRepo = c["repo"].orEmpty()
+            Triple(h, p, pw to (c["method"].orEmpty().ifEmpty { "aes-256-gcm" }))
+        }
+        val i = Intent(this, ProxyVpnService::class.java).apply {
+            action = ProxyVpnService.ACTION_SOCKS
+            putExtra("owner", pendingOwner)
+            putExtra("repo", pendingRepo)
+            putExtra("ss_host", ep.first)
+            putExtra("ss_port", ep.second)
+            putExtra("ss_password", ep.third.first)
+            putExtra("ss_method", ep.third.second)
+        }
+        try {
+            startForegroundService(i)
+            Prefs.trace(this, "socks-only launched")
+            status.text = "السوكس شغال على 127.0.0.1:1080 — تيليجرام: الإعدادات ← البيانات والتخزين ← البروكسي ← SOCKS5."
+        } catch (e: Exception) {
+            status.text = "فشل: ${e.message}"
+        }
+    }
+
     private fun startVpn() {
         Prefs.trace(this, "button pressed")
         if (isVpnUp()) {
