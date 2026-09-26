@@ -2,8 +2,10 @@
 
 1. حمّل `ipnet-bundle.zip` من [Releases](../../releases) وفك ضغطه.
 2. اعمل مستودع جديد على GitHub (عام = موبايل تلقائي، خاص = يدوي).
-3. ارفع كل محتويات الفولدر على المستودع (Upload files من المتصفح)،
-   مع الحفاظ على المسار `.github/workflows/proxy.yml`.
+3. انسخ **كل محتويات** الفولدر (ملفات + مجلد `.github`) لداخل المستودع
+   عبر **GitHub Desktop** (Clone ← انسخ ← Commit ← Push) أو أوامر git:
+   `git add . && git commit -m "ipnet" && git push`.
+   > الرفع من متصفح GitHub نفسه **يتجاهل مجلد `.github`** — استخدم Desktop أو git.
 4. افتح تبويب **Actions**: أول تشغيل يبدأ وحده بعد الرفع، ولو لا دوس
    Run workflow على **USA Proxy**.
 5. بعد دقايق افتح **`CONNECT.md`** وانسخ منه حسب جهازك
