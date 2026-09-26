@@ -224,24 +224,51 @@ jobs:
             return 1
           }
           restart_http_bore() {
-            echo "RESTARTING http bore tunnel..."
-            kill $(cat /tmp/bore.pid) 2>/dev/null || true
-            sleep 2
-            rm -f /tmp/bore.log
-            /tmp/bore local 8080 --to bore.pub > /tmp/bore.log 2>&1 &
+            # Overlap restart: the new tunnel goes up FIRST and the old one
+            # stays alive ~210s after the push, so connected clients keep
+            # working on the old port until they pick up the new one.
+            echo "RESTARTING http bore tunnel (overlap: keep old alive)..."
+            OLD_PID=$(cat /tmp/bore.pid 2>/dev/null || echo "")
+            rm -f /tmp/bore-new.log
+            /tmp/bore local 8080 --to bore.pub > /tmp/bore-new.log 2>&1 &
             echo $! > /tmp/bore.pid
             sleep 8
-            cat /tmp/bore.log
+            cat /tmp/bore-new.log
+            if grep -qoE "bore\.pub:[0-9]+" /tmp/bore-new.log 2>/dev/null; then
+              mv -f /tmp/bore-new.log /tmp/bore.log
+            else
+              echo "new http bore failed - keeping old tunnel"
+              kill $(cat /tmp/bore.pid) 2>/dev/null || true
+              [ -n "$OLD_PID" ] && echo "$OLD_PID" > /tmp/bore.pid || true
+              return 0  # keep-alive step runs under bash -e: never fail it
+            fi
+            if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+              ( sleep 210; kill "$OLD_PID" 2>/dev/null || true ) &
+              echo "old http bore $OLD_PID kept alive 210s for overlap"
+            fi
           }
           restart_ss_bore() {
-            echo "RESTARTING ss bore tunnel..."
-            kill $(cat /tmp/bore-ss.pid) 2>/dev/null || true
-            sleep 2
-            rm -f /tmp/bore-ss.log
-            /tmp/bore local 8388 --to bore.pub > /tmp/bore-ss.log 2>&1 &
+            # Overlap restart: same as http - new tunnel first, old kept
+            # ~210s so the client never feels the switch.
+            echo "RESTARTING ss bore tunnel (overlap: keep old alive)..."
+            OLD_PID=$(cat /tmp/bore-ss.pid 2>/dev/null || echo "")
+            rm -f /tmp/bore-ss-new.log
+            /tmp/bore local 8388 --to bore.pub > /tmp/bore-ss-new.log 2>&1 &
             echo $! > /tmp/bore-ss.pid
             sleep 8
-            cat /tmp/bore-ss.log
+            cat /tmp/bore-ss-new.log
+            if grep -qoE "bore\.pub:[0-9]+" /tmp/bore-ss-new.log 2>/dev/null; then
+              mv -f /tmp/bore-ss-new.log /tmp/bore-ss.log
+            else
+              echo "new ss bore failed - keeping old tunnel"
+              kill $(cat /tmp/bore-ss.pid) 2>/dev/null || true
+              [ -n "$OLD_PID" ] && echo "$OLD_PID" > /tmp/bore-ss.pid || true
+              return 0  # keep-alive step runs under bash -e: never fail it
+            fi
+            if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
+              ( sleep 210; kill "$OLD_PID" 2>/dev/null || true ) &
+              echo "old ss bore $OLD_PID kept alive 210s for overlap"
+            fi
           }
           restart_ss_server() {
             echo "RESTARTING local shadowsocks server..."

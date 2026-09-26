@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.4.0"
+APP_VERSION = "v1.4.1"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -146,9 +146,21 @@ def save_config(cfg):
         json.dump(cfg, f, indent=2)
 
 
-def raw_get(url, timeout=20):
+def raw_get(url, timeout=20, bust=False):
+    """Read a public raw file. bust=True appends ?cb=<unix> and sends
+    no-cache headers to dodge the Fastly edge cache (raw serves
+    Cache-Control: max-age=300, so a plain branch URL can lag ~5 min
+    behind a fresh push). Raw polling is free and unlimited, unlike the
+    GitHub API (60 req/hr unauthenticated)."""
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as r:
+        if bust:
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}cb={int(time.time())}"
+        req = urllib.request.Request(url, headers={
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "User-Agent": f"{APP_NAME}/{APP_VERSION}"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.read().decode("utf-8", "ignore").strip()
     except Exception:
         return ""
@@ -206,15 +218,15 @@ def fetch_public_repo_snapshot(owner, repo):
     """Read-only check of a PUBLIC repo (no login). Returns
     {endpoint, endpoint_file, password, method, has_code}."""
     base = f"{RAW}/{owner}/{repo}/main"
-    ss_endpoint = raw_get(f"{base}/ss_url.txt")
-    bore_endpoint = raw_get(f"{base}/bore_url.txt")
+    ss_endpoint = raw_get(f"{base}/ss_url.txt", bust=True)
+    bore_endpoint = raw_get(f"{base}/bore_url.txt", bust=True)
     endpoint, endpoint_file = "", ""
     if ss_endpoint and re.match(r"bore\.pub:\d+", ss_endpoint):
         endpoint, endpoint_file = ss_endpoint, "ss_url.txt"
     elif bore_endpoint and re.match(r"bore\.pub:\d+", bore_endpoint):
         endpoint, endpoint_file = bore_endpoint, "bore_url.txt"
-    singbox_text = raw_get(f"{base}/singbox-server.json")
-    workflow_text = raw_get(f"{base}/.github/workflows/proxy.yml")
+    singbox_text = raw_get(f"{base}/singbox-server.json", bust=True)
+    workflow_text = raw_get(f"{base}/.github/workflows/proxy.yml", bust=True)
     has_code = bool(singbox_text or workflow_text)
     server_text = ""
     if not has_code:
@@ -256,7 +268,7 @@ def setup_attach(repo_text, log):
     started = time.time()
     for _i in range(48):
         time.sleep(15)
-        v = raw_get(f"{RAW}/{owner}/{repo}/main/ss_url.txt")
+        v = raw_get(f"{RAW}/{owner}/{repo}/main/ss_url.txt", bust=True)
         if v and re.match(r"bore\.pub:\d+", v):
             log(f"Ready! Endpoint: {v}")
             return cfg
@@ -660,10 +672,60 @@ def find_chrome():
     return None
 
 
-def fetch_endpoint(cfg):
-    # Public raw files: ss_url.txt preferred, bore_url.txt fallback.
+# --- instant-update helpers (SHA-pinned fetch) ---
+# raw branch URLs lag ~5 min (Fastly max-age=300, verified: X-Cache HIT,
+# Source-Age ~294s). The commits API is fresh instantly, and a raw URL
+# pinned to a commit SHA is immutable, so the CDN must MISS and serve the
+# new file at once. The API is polled at most every ~90s (unauthenticated
+# limit is 60/hr -> 90s uses ~40/hr, safely under it).
+_last_sha_check = 0.0
+_last_seen_sha = ""
+
+
+def _api_latest_sha(owner, repo, path="ss_url.txt"):
+    """Latest commit SHA touching <path>, or '' (throttled to ~90s)."""
+    global _last_sha_check
+    if time.time() - _last_sha_check < 90:
+        return ""
+    _last_sha_check = time.time()
+    url = (f"https://api.github.com/repos/{owner}/{repo}/commits"
+           f"?path={path}&per_page=1&sha=main")
+    try:
+        req = urllib.request.Request(url, headers={
+            "User-Agent": f"{APP_NAME}/{APP_VERSION}",
+            "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = json.loads(r.read().decode("utf-8", "ignore") or "[]")
+        if data and isinstance(data, list) and data[0].get("sha"):
+            return data[0]["sha"]
+    except Exception:
+        pass
+    return ""
+
+
+def fetch_pinned_endpoint(cfg):
+    """Fresh endpoint via SHA-pinned raw URL (bypasses branch cache).
+    Returns (name, endpoint) or ('','')."""
+    global _last_seen_sha
+    sha = _api_latest_sha(cfg["owner"], cfg["repo"])
+    if not sha or sha == _last_seen_sha:
+        return "", ""
     for name in ("ss_url.txt", "bore_url.txt"):
-        v = raw_get(f"{RAW}/{cfg['owner']}/{cfg['repo']}/main/{name}")
+        v = raw_get(f"{RAW}/{cfg['owner']}/{cfg['repo']}/{sha}/{name}",
+                    timeout=15)
+        if v and re.match(r"bore\.pub:\d+", v):
+            _last_seen_sha = sha
+            return name, v
+    _last_seen_sha = sha  # sha seen but endpoint not in it; don't refetch
+    return "", ""
+
+
+def fetch_endpoint(cfg):
+    # Public raw files with cache-buster: ss_url.txt preferred,
+    # bore_url.txt fallback. (Full freshness via fetch_pinned_endpoint.)
+    for name in ("ss_url.txt", "bore_url.txt"):
+        v = raw_get(f"{RAW}/{cfg['owner']}/{cfg['repo']}/main/{name}",
+                    bust=True)
         if v and re.match(r"bore\.pub:\d+", v):
             return name, v
     return "", ""
@@ -940,6 +1002,13 @@ def run_terminal(cfg):
     try:
         while True:
             name, endpoint = fetch_endpoint(cfg)
+            # Instant path: while the tunnel is down the branch raw URL can
+            # lag ~5 min (CDN cache), so ask the commits API for the fresh
+            # SHA (throttled, ~90s) and jump straight to the new endpoint.
+            if dead and endpoint == current:
+                _pn, _pe = fetch_pinned_endpoint(cfg)
+                if _pe and _pe != current:
+                    name, endpoint = _pn, _pe
             if not endpoint:
                 fails += 1
                 slog(f"Endpoint not published yet ({fails}) - next check in ~1 min. "
@@ -1010,7 +1079,9 @@ def run_terminal(cfg):
                           "following its fresh endpoint ...", flush=True)
                 # Follow-only: the workflow heals itself on FIRST failure and
                 # publishes a new endpoint; the loop above picks it up.
-            time.sleep(20)
+            # Poll fast while down (5s) so the switch is instant, calm (15s)
+            # while healthy. Raw polling is free; the API stays throttled.
+            time.sleep(5 if dead else 15)
     except KeyboardInterrupt:
         slog("\nStopping...")
     finally:
