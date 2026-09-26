@@ -1,6 +1,6 @@
 # إعداد سيرفر جديد (مرة واحدة — ضغطة واحدة)
 
-1. افتح المستودع الأصلي: `https://github.com/X5Coder/proxy-usa`.
+1. افتح المستودع الأصلي: `https://github.com/X5Coder/IPNET`.
 2. دوس **Use this template** واعمل مستودعك (عام).
 3. افتح تبويب **Actions** في مستودعك: لو مفيش تشغيل شغال، دوس
    Run workflow على **USA Proxy** مرة واحدة.

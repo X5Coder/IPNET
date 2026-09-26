@@ -60,7 +60,7 @@ a{color:#38bdf8}
 • الهاتف: WiFi → Modify → Proxy Manual<br>
 </div>
 <p style="font-size:13px;color:#94a3b8">Render Free • Oregon (US West) / Ohio (US East)<br>للتصفح الخاص وتجاوز الحجب</p>
-<p><a href="/health">Health Check</a> • <a href="https://github.com/X5Coder/proxy-usa">GitHub</a></p>
+<p><a href="/health">Health Check</a> • <a href="https://github.com/X5Coder/IPNET">GitHub</a></p>
 </div>
 </body>
 </html>

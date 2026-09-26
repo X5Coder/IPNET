@@ -29,7 +29,7 @@ import zipfile
 
 APP_NAME = "IPNET"
 APP_VERSION = "v1.4.0"
-TEMPLATE_URL = "https://github.com/X5Coder/proxy-usa"
+TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
 SB_VERSION = "1.14.2"
@@ -600,7 +600,7 @@ def gui_setup(error_msg=""):
     tk.Frame(wrap, bg=HAIR, height=1).pack(fill="x", pady=(10, 8))
     tk.Label(wrap, text=f"{APP_NAME} {APP_VERSION} — by {APP_AUTHOR}", bg=PAPER, fg=MUTED,
              font=("Consolas", 8)).pack(anchor="center")
-    tk.Label(wrap, text="Original: github.com/X5Coder/proxy-usa", bg=PAPER, fg=MUTED,
+    tk.Label(wrap, text="Original: github.com/X5Coder/IPNET", bg=PAPER, fg=MUTED,
              font=("Consolas", 8)).pack(anchor="center")
     root.mainloop()
     return result.get("cfg")

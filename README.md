@@ -1,48 +1,56 @@
-# IPNET — USA proxy in one click
+<p align="center">
+  <img src="ipnet.png" width="96" alt="IPNET">
+</p>
 
-Free USA proxy (GitHub Actions) + Windows app + phone subscription.
+<h1 align="center">IPNET</h1>
 
-[![YouTube](https://img.shields.io/badge/YouTube-Kareem_X5Coder-red?style=for-the-badge&logo=youtube)](https://www.youtube.com/@Kareem-X5Coder)
+<p align="center">
+  <b>USA proxy in one click.</b><br>
+  Free US server (GitHub Actions) · Windows app · Phone subscription.
+</p>
 
-Developer: **X5Coder** — Original repo: `https://github.com/X5Coder/proxy-usa`
+<p align="center">
+  <a href="https://github.com/X5Coder/IPNET/releases"><img src="https://img.shields.io/github/v/release/X5Coder/IPNET?label=download&color=blue" alt="release"></a>
+  <a href="https://www.youtube.com/@Kareem-X5Coder"><img src="https://img.shields.io/badge/YouTube-Kareem_X5Coder-red?style=flat&logo=youtube" alt="youtube"></a>
+</p>
 
-## 1. Make your server (once, 1 click)
+---
 
-1. Open `https://github.com/X5Coder/proxy-usa` → **Use this template** → create your repo (public).
-2. Open the **Actions** tab in your repo → run **USA Proxy** once if not already running.
+## 1 · Make your server (once)
+
+1. Open [`X5Coder/IPNET`](https://github.com/X5Coder/IPNET) → **Use this template** → create your repo (public).
+2. In your repo open **Actions** → run **USA Proxy** once if not already running.
 3. After a few minutes open **`README.md`** in your repo — copy from there.
 
-## 2. Windows
+## 2 · Windows
 
-1. Download **`IPNET.exe`** from [Releases](../../releases), run it.
-2. Paste **your repo link** → **Start** → Chrome opens via USA IP.
+1. Download **`IPNET.exe`** from [Releases](https://github.com/X5Coder/IPNET/releases), run it.
+2. Paste **your repo link** → **Start** → Chrome opens via USA IP (WebRTC + DNS leak-protected).
 3. Every launch: same screen (link saved) → Start.
 
-## 3. Android (v2rayNG) — step by step
+## 3 · Android ([v2rayNG](https://github.com/2dust/v2rayNG/releases) `arm64-v8a`)
 
-1. Install **v2rayNG** — tap to download directly ([v2rayNG_2.2.6 `arm64-v8a`](https://github.com/2dust/v2rayNG/releases/download/2.2.6/v2rayNG_2.2.6_arm64-v8a.apk)).
-2. Top-left menu → **Subscription group setting** → **+**, fill exactly:
-   - **remarks**: any name, e.g. `IPNET`.
+1. Top-left menu → **Subscription group setting** → **+**, fill exactly:
+   - **remarks**: `IPNET`.
    - **Optional URL**: your subscription link, e.g.
      `https://raw.githubusercontent.com/YOU/YOUR-REPO/main/sub.txt`
      (replace `YOU/YOUR-REPO` with yours).
-   - **Enable update**: ON.
-   - **Enable automatic update**: ON, interval `60`.
-   - Leave the rest → press **✓** (top right) to save.
-3. Back on the main screen → **⋮** menu → **Update subscription** → server `IPNET-USA` appears.
-4. Tap the server to select it → press **▶** (bottom right) → allow VPN.
-5. Open [ipleak.net](https://ipleak.net/) → United States.
-6. Not working? Restart the service from the notification (or stop/start in
-   the app), then ⋮ → **Update subscription** → connect again.
+   - **Enable update** + **Enable automatic update**: ON, interval `60`.
+   - Press **✓** to save.
+2. Main screen → **⋮** → **Update subscription** → tap `IPNET-USA` → **▶** → allow VPN.
+3. Open [ipleak.net](https://ipleak.net/) → United States.
+4. Stuck later? Restart the service from the notification, **⋮** → **Update subscription** → connect.
 
 ## How it works
 
 - Actions (USA) runs HTTP proxy + encrypted Shadowsocks, exposed via `bore` tunnels.
 - Self-checks every minute, heals on first failure, publishes the new port to `ss_url.txt` + `sub.txt` + your repo `README.md`.
 - **One fixed link forever**: `sub.txt`. Ports rotate (~5h), the link never changes.
-- ISPs blocking plain `CONNECT` see only encrypted traffic.
+- Encrypted-only traffic (CONNECT-blocking ISPs see nothing); Chrome profile forces no-leak WebRTC policy + DNS-over-HTTPS.
 
-## Rights
+---
 
-Original: `https://github.com/X5Coder/proxy-usa` — by **X5Coder**.
-Do not remove credits. Tutorials: https://www.youtube.com/@Kareem-X5Coder
+<p align="center">
+  Original: <a href="https://github.com/X5Coder/IPNET">github.com/X5Coder/IPNET</a> — by <b>X5Coder</b><br>
+  Do not remove credits · Tutorials: <a href="https://www.youtube.com/@Kareem-X5Coder">YouTube</a>
+</p>

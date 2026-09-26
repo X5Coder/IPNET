@@ -6,7 +6,7 @@ Private USA proxy server, deployed automatically by **IPNET**.
 
 Developer: **X5Coder**
 
-Original project: https://github.com/X5Coder/proxy-usa
+Original project: https://github.com/X5Coder/IPNET
 
 ## What is this?
 
@@ -21,7 +21,7 @@ Live info appears here automatically after the first run.
 
 ## Windows (IPNET.exe)
 
-1. Download **`IPNET.exe`** from https://github.com/X5Coder/proxy-usa/releases.
+1. Download **`IPNET.exe`** from https://github.com/X5Coder/IPNET/releases.
 2. Paste **this repo's link** → **Start** → Chrome opens via USA IP.
 3. Every launch: same screen (link saved) → Start.
 
