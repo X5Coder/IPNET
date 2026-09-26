@@ -11,20 +11,7 @@ Free US server (GitHub Actions) · Windows app · Phone subscription
 <br>
 
 <a href="README.ar.md"><img src="https://img.shields.io/badge/🇸🇦_Arabic-2ea44f?style=for-the-badge&logo=googletranslate&logoColor=white" alt="Arabic"></a>
-<a href="https://github.com/X5Coder/IPNET/stargazers"><img src="https://img.shields.io/github/stars/X5Coder/IPNET?style=for-the-badge&logo=github&color=ffd700&labelColor=24292e" alt="Stars"></a>
 <a href="https://www.youtube.com/@Kareem-X5Coder"><img src="https://img.shields.io/badge/YouTube-Kareem_X5Coder-ff0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube"></a>
-
-</div>
-
-<br>
-
-<div align="center">
-
-### ⬇️ Direct Download
-
-| 🖥️ Windows | 📱 Android |
-|:---:|:---:|
-| <a href="https://github.com/X5Coder/IPNET/releases/latest/download/IPNET.exe"><img src="https://img.shields.io/badge/Download-IPNET.exe-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download IPNET.exe"></a> | <a href="https://github.com/2dust/v2rayNG/releases/download/2.2.6/v2rayNG_2.2.6_arm64-v8a.apk"><img src="https://img.shields.io/badge/Download-v2rayNG.apk-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Download v2rayNG"></a> |
 
 </div>
 
