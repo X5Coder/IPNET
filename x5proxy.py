@@ -753,19 +753,53 @@ def stop_tunnel(proc, lf):
         pass
 
 
+def seed_chrome_profile(profile):
+    """Write privacy prefs into the USA profile BEFORE Chrome starts.
+
+    Fully automatic (the app does it on every launch, no user steps):
+    - Accept-Language en-US (existing behavior).
+    - webrtc.ip_handling_policy = disable_non_proxied_udp at PROFILE
+      level. This is what actually stops the leak: the CLI switch alone
+      is ignored once WebRTC has ever run in the profile, but the stored
+      profile pref wins every time and survives restarts.
+    Existing keys are preserved; Chrome must not be running on this
+    profile while we write (our flow always writes before first launch).
+    """
+    prefs = os.path.join(profile, "Preferences")
+    try:
+        data = {}
+        if os.path.exists(prefs):
+            try:
+                with open(prefs, "r", encoding="utf-8") as f:
+                    data = json.load(f) or {}
+            except Exception:
+                data = {}
+        if not isinstance(data, dict):
+            data = {}
+        intl = data.get("intl")
+        if not isinstance(intl, dict):
+            intl = {}
+        intl["accept_languages"] = "en-US,en"
+        data["intl"] = intl
+        web = data.get("webrtc")
+        if not isinstance(web, dict):
+            web = {}
+        web["ip_handling_policy"] = "disable_non_proxied_udp"
+        data["webrtc"] = web
+        with open(prefs, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        return True
+    except Exception as e:
+        slog(f"Profile seed failed: {e}", flush=True)
+        return False
+
+
 def open_usa_chrome(chrome, url=None):
     """Open Chrome with a USA identity: English UI+content, no WebRTC leak.
     url is opened only when given (first run); otherwise a normal window."""
     profile = os.path.join(app_dir(), "chrome-usa")
     os.makedirs(profile, exist_ok=True)
-    # seed Accept-Language once (Chrome stores it in Preferences)
-    prefs = os.path.join(profile, "Preferences")
-    try:
-        if not os.path.exists(prefs):
-            with open(prefs, "w", encoding="utf-8") as f:
-                json.dump({"intl": {"accept_languages": "en-US,en"}}, f)
-    except Exception:
-        pass
+    seed_chrome_profile(profile)
     try:
         args = [
             chrome, f"--user-data-dir={profile}",
