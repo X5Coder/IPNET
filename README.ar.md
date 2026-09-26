@@ -1,73 +1,90 @@
-<p align="center">
-  <a href="README.md"><img src="https://img.shields.io/badge/English-README-blue?style=for-the-badge&logo=googletranslate&logoColor=white" alt="English"></a>
-  <a href="https://github.com/X5Coder/IPNET/stargazers"><img src="https://img.shields.io/github/stars/X5Coder/IPNET?style=for-the-badge&logo=github&color=yellow&labelColor=333333" alt="stars"></a>
-</p>
+<div align="center" dir="rtl">
 
-<p align="center">
-  <img src="ipnet.png" width="96" alt="IPNET">
-</p>
+<img src="ipnet.png" width="100" alt="IPNET">
 
-<h1 align="center">IPNET</h1>
+# IPNET
 
-<div dir="rtl">
+### 🇺🇸 بروكسي أمريكي بضغطة واحدة — شبكتك الأمريكية الخاصة
 
-**بروكسي أمريكي بضغطة واحدة. شبكتك الأمريكية الخاصة.**
+سيرفر أمريكي مجاني (GitHub Actions) · برنامج ويندوز · اشتراك للموبايل
 
-سيرفر أمريكي مجاني + برنامج ويندوز + اشتراك للموبايل — بدون توكن وبدون أوامر.
+<br>
 
-<p align="center">
-  <a href="https://github.com/X5Coder/IPNET/releases/latest/download/IPNET.exe"><img src="https://img.shields.io/badge/%D9%88%D9%8A%D9%86%D8%AF%D9%88%D8%B2-IPNET.exe-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="تحميل للويندوز"></a>
-</p>
+<a href="README.md"><img src="https://img.shields.io/badge/English-README-blue?style=for-the-badge&logo=googletranslate&logoColor=white" alt="English"></a>
+<a href="https://www.youtube.com/@Kareem-X5Coder"><img src="https://img.shields.io/badge/YouTube-Kareem_X5Coder-ff0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube"></a>
 
-<p align="center">
-  <a href="https://github.com/2dust/v2rayNG/releases/download/2.2.6/v2rayNG_2.2.6_arm64-v8a.apk"><img src="https://img.shields.io/badge/%D8%A3%D9%86%D8%AF%D8%B1%D9%88%D9%8A%D8%AF-v2rayNG.apk-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="تحميل للأندرويد"></a>
-  <a href="https://www.youtube.com/@Kareem-X5Coder"><img src="https://img.shields.io/badge/%D9%8A%D9%88%D8%AA%D9%8A%D9%88%D8%A8-Kareem_X5Coder-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="يوتيوب"></a>
-</p>
+</div>
+
+<br>
 
 ---
 
-## ١ · اعمل سيرفرك (مرة واحدة)
+<div dir="rtl">
 
-1. افتح [`X5Coder/IPNET`](https://github.com/X5Coder/IPNET) ودوس **Use this template** واعمل مستودعك (عام).
-2. في مستودعك افتح **Actions** وشغّل **USA Proxy** مرة واحدة لو مش شغال.
+## 1️⃣ اعمل سيرفرك (مرة واحدة فقط)
 
-## ٢ · ويندوز
+> الإعداد ده بتعمله مرة واحدة بس، وبعدها تقدر تتصل في أي وقت.
 
-1. دوس زرار **ويندوز** فوق — بيحمّل مباشرة — شغّل البرنامج.
-2. الصق **رابط مستودعك** ودوس **Start** — كروم أمريكي بيفتح لوحده (محمي من تسريب WebRTC وDNS).
-3. كل مرة: نفس الشاشة (الرابط محفوظ) ← Start.
+| الخطوة | الشرح |
+|:---:|---|
+| **1** | افتح [`X5Coder/IPNET`](https://github.com/X5Coder/IPNET) ← دوس **Use this template** ← اعمل مستودعك الخاص (لازم يكون **Public**). |
+| **2** | في مستودعك الجديد افتح تبويب **Actions** وشغّل **USA Proxy** لو مش شغال لوحده. |
 
-## ٣ · أندرويد
+---
 
-1. دوس زرار **أندرويد** فوق — بيحمّل مباشرة — ثبّته.
-2. القائمة الجانبية ← **Subscription group setting** ← **+** واملأ بالظبط:
-   - **remarks**: أي اسم مثل `IPNET`.
-   - **Optional URL**: رابط اشتراكك، مثال:
-     `https://raw.githubusercontent.com/YOU/YOUR-REPO/main/sub.txt`
-     (بدّل `YOU/YOUR-REPO` بتاعتك).
-   - **Enable update** و**Enable automatic update**: شغالين، والمدة `60`.
-   - دوس **✓** للحفظ.
-3. الرئيسية ← **⋮** ← **Update subscription** ← دوس على `IPNET-USA` ← دوس **▶** ← وافق على VPN.
-4. افتح [ipleak.net](https://ipleak.net/) ← لازم يقول United States.
-5. وقف بعدين؟ اعمل ريستارت للخدمة من الإشعار، **⋮** ← **Update subscription** ← اتصل.
+## 2️⃣ التشغيل على ويندوز
+
+| الخطوة | الشرح |
+|:---:|---|
+| **1** | دوس على [**IPNET.exe**](https://github.com/X5Coder/IPNET/releases/latest/download/IPNET.exe) — بيحمّل مباشرة. شغّله. |
+| **2** | الصق **رابط مستودعك** جوه البرنامج ← دوس **Start**. كروم بيفتح بـ IP أمريكي. |
+| **3** | في كل مرة بعد كده: الرابط بيكون محفوظ لوحده — بس دوس **Start**. |
+
+---
+
+## 3️⃣ التشغيل على أندرويد
+
+| الخطوة | الشرح |
+|:---:|---|
+| **1** | دوس على [**v2rayNG.apk**](https://github.com/2dust/v2rayNG/releases/download/2.2.6/v2rayNG_2.2.6_arm64-v8a.apk) للتحميل، وبعدين ثبّته. |
+| **2** | من القائمة أعلى اليسار افتح **Subscription group setting** ← دوس **+** واملأ الحقول تحت. |
+
+**بيانات الاشتراك:**
+
+| الحقل | القيمة |
+|---|---|
+| `remarks` | `IPNET` |
+| `Optional URL` | رابط اشتراكك، مثال: `https://raw.githubusercontent.com/YOU/YOUR-REPO/main/sub.txt`<br>*(بدّل `YOU/YOUR-REPO` باسم مستودعك)* |
+| `Enable update` | ✅ شغّال |
+| `Enable automatic update` | ✅ شغّال — المدة `60` |
+
+بعدين دوس **✓** للحفظ.
+
+| الخطوة | الشرح |
+|:---:|---|
+| **3** | من الشاشة الرئيسية دوس **⋮** ← **Update subscription** ← دوس على `IPNET-USA` ← دوس **▶** ← وافق على صلاحية VPN. |
+| **4** | اتأكد إن الاتصال شغال من [ipleak.net](https://ipleak.net/) — المفروض يظهر **United States**. |
+| **5** | لو وقف بعدين: اعمل ريستارت للخدمة من الإشعار، وبعدين **⋮** ← **Update subscription** ← اتصل تاني. |
 
 ---
 
 ## ⭐ ادعم المشروع
 
-لو IPNET شغال معاك، دوس **نجمة (Star)** للمستودع — ٥ ثواني وبتخليه عايش:
+<div align="center">
 
-<p align="center">
-  <a href="https://github.com/X5Coder/IPNET"><img src="https://img.shields.io/github/stars/X5Coder/IPNET?style=for-the-badge&logo=github&color=yellow&label=Star%20IPNET&labelColor=333333" alt="star IPNET"></a>
-</p>
+لو IPNET شغال معاك، دوس **نجمة (Star)** للمستودع — بتاخد ٥ ثواني وبتساعد المشروع يفضل شغال 🙏
 
-<p align="center">
-  <a href="https://github.com/X5Coder/IPNET"><img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=22&duration=3000&pause=1000&color=111111&center=true&vCenter=true&width=600&lines=%D8%A7%D9%84%D9%85%D8%B3%D8%AA%D9%88%D8%AF%D8%B9+%D8%A7%D9%84%D8%A3%D8%B5%D9%84%D9%8A%3A+github.com%2FX5Coder%2FIPNET;by+X5Coder+%E2%80%A2+%D9%85%D9%85%D9%86%D9%88%D8%B9+%D8%A5%D8%B2%D8%A7%D9%84%D8%A9+%D8%A7%D9%84%D8%AD%D9%82%D9%88%D9%82;Tutorials+on+YouTube+%E2%96%B6+Kareem+X5Coder" alt="credits"></a>
-</p>
+<a href="https://github.com/X5Coder/IPNET"><img src="https://img.shields.io/github/stars/X5Coder/IPNET?style=for-the-badge&logo=github&color=ffd700&label=Star%20IPNET&labelColor=24292e" alt="Star IPNET"></a>
 
-<p align="center">
-  <a href="https://www.youtube.com/@Kareem-X5Coder"><img src="https://img.shields.io/badge/%D9%8A%D9%88%D8%AA%D9%8A%D9%88%D8%A8-Kareem_X5Coder-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="يوتيوب"></a>
-  <a href="https://github.com/X5Coder/IPNET"><img src="https://img.shields.io/badge/IPNET-%D8%A7%D9%84%D8%A3%D8%B5%D9%84%D9%8A-111111?style=for-the-badge&logo=github&logoColor=white" alt="المستودع الأصلي"></a>
-</p>
+<br><br>
+
+<a href="https://github.com/X5Coder/IPNET"><img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=18&duration=3000&pause=1000&color=666666&center=true&vCenter=true&width=600&lines=Original%3A+github.com%2FX5Coder%2FIPNET;by+X5Coder+%E2%80%A2+Do+not+remove+credits;Tutorials+on+YouTube+%E2%96%B6+Kareem+X5Coder" alt="credits"></a>
+
+<br>
+
+<a href="https://www.youtube.com/@Kareem-X5Coder"><img src="https://img.shields.io/badge/YouTube-Kareem_X5Coder-ff0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube"></a>
+<a href="https://github.com/X5Coder/IPNET"><img src="https://img.shields.io/badge/Repo-IPNET_Original-111111?style=for-the-badge&logo=github&logoColor=white" alt="Original repo"></a>
+
+</div>
 
 </div>
