@@ -19,6 +19,8 @@ The IPNET app on your PC connects to it and opens Chrome through the USA IP.
 - `singbox-server.json` — encrypted Shadowsocks server
 - `.github/workflows/proxy.yml` — runs everything, self-heals
 - `ss_url.txt` — current encrypted endpoint (auto-updated)
+- `sub.txt` — fixed subscription link for phone apps (auto-updated)
+- `CONNECT.md` — copy-paste blocks: repo link, ss link, sub link, steps
 
 ## Do not
 

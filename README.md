@@ -1,45 +1,54 @@
-# IPNET v1 — USA proxy in one click
+# IPNET — بروكسي أمريكي بضغطة واحدة
 
-Download **`IPNET.exe`** from [Releases](../../releases) and double-click it.
+سيرفر بروكسي أمريكي مجاني (GitHub Actions) + برنامج ويندوز + اشتراك للموبايل.
 
 [![YouTube](https://img.shields.io/badge/YouTube-Kareem_X5Coder-red?style=for-the-badge&logo=youtube)](https://www.youtube.com/@Kareem-X5Coder)
 
-Developer: **X5Coder**
+المطور: **X5Coder**
 
-## Setup (once, ~5 min, no tokens)
+## لو عندك رابط مستودع شغال — استخدمه فوراً
 
-1. Create a free GitHub account.
-2. Open IPNET, type a repo name, press **Start**.
-3. Click **Authorize** in the browser.
+### ويندوز
+1. حمّل **`IPNET.exe`** من [Releases](../../releases) وشغّله.
+2. الصق رابط المستودع ودوس **Start** — هيفتح Chrome أمريكي لوحده.
+3. كل تشغيل بعد كده: نفس الشاشة (الرابط محفوظ) → Start.
+4. المستودع خاص؟ الصق توكن مع الرابط في خانته.
 
-Full guide: [SETUP.md](SETUP.md). The app creates the repo, uploads the
-server, starts it, then opens Chrome through the USA IP by itself.
+### أندرويد (v2rayNG)
+1. ثبّت **v2rayNG** (نسخة `arm64-v8a` من المتجر أو GitHub).
+2. القائمة ← Subscription settings ← + ← الصق رابط الاشتراك الثابت:
+   `https://raw.githubusercontent.com/OWNER/REPO/main/sub.txt`
+   (بدّل OWNER/REPO — الرابط الكامل هتلاقيه جاهز للنسخ في ملف `CONNECT.md` جوه المستودع).
+3. حدّث الاشتراك ← اختر **IPNET-USA** ← اتصل ووافق على VPN.
+4. اتأكد من `ipinfo.io` إنه يقول United States.
 
-## Daily use
+## لو عايز سيرفرك الخاص (أول مرة — بدون أوامر)
+1. حمّل **`ipnet-bundle.zip`** من [Releases](../../releases).
+2. اعمل مستودع جديد (عام للموبايل التلقائي، أو خاص) وارفع محتويات الفولدر كما هي من المتصفح.
+3. السيرفر يشتغل لوحده بعد الرفع (ولو لا: تبويب Actions ← شغّل USA Proxy يدوياً).
+4. بعد دقايق افتح ملف **`CONNECT.md`** في المستودع: فيه كل حاجة للنسخ (رابط الريبو + رابط ss + رابط الاشتراك + الخطوات).
 
-Double-click IPNET, leave the terminal open. It shows the proxy address
-(`127.0.0.1:1080`), refreshes endpoints and heals itself automatically.
+## إزاي شغال؟
 
-## How it works
+- Actions (أمريكا) يشغل بروكسي HTTP + سيرفر Shadowsocks مشفر، ويكشفهم عبر أنفاق `bore`.
+- السيرفر بيفحص نفسه كل دقيقة ويجدد النفق **من أول فشل** وينشر البورت الجديد في `ss_url.txt` + `sub.txt` + `CONNECT.md`.
+- **رابط واحد ثابت للأبد**: `sub.txt` (للتطبيقات، يتحدث تلقائياً). البورت يتغير، الرابط لا.
+- بعض الشبكات بتحجب `CONNECT` العادي — كل الترافيك عندنا مشفر، مفيش حاجة تتحجب.
 
-GitHub Actions (USA) runs an HTTP proxy + encrypted Shadowsocks server,
-exposed via bore tunnels. Some ISPs block plain `CONNECT`, so all traffic
-goes encrypted — nothing to block.
+## الملفات
 
-## Files
-
-| File | Purpose |
+| الملف | دوره |
 |---|---|
-| `x5proxy.py` | Desktop app (built to `IPNET.exe`) |
-| `server.py` | Forward proxy (HTTP + HTTPS) |
-| `singbox-server.json` | Shadowsocks server config |
-| `.github/workflows/proxy.yml` | Action: runs both, self-heals |
-| `USER_README.md` | README uploaded to user repos |
-| `ipnet.svg/.ico/.png` | App icon |
-| `ss-client-template.json` | Manual client example |
+| `x5proxy.py` | برنامج الويندوز (بيتبني `IPNET.exe`) — قراءة فقط، بدون رفع |
+| `server.py` | بروكسي HTTP/HTTPS على السيرفر |
+| `singbox-server.json` | سيرفر Shadowsocks المشفر |
+| `.github/workflows/proxy.yml` | التشغيل + الفحص + الشفاء + توليد الملفات |
+| `USER_README.md` | README المستودعات الجديدة |
+| `ss-client-template.json` | مثال إعداد عميل يدوي |
 
-## Notes
+## ملاحظات
 
-- SmartScreen "Unknown publisher": **More info → Run anyway** (no paid cert).
-- Password is random per repo; endpoints rotate about every 5 hours.
-- `ss_url.txt` is auto-published — that is how the app finds the server.
+- SmartScreen "Unknown publisher": **More info ← Run anyway** (مفيش شهادة مدفوعة).
+- الباسورد عشوائي لكل مستودع، والبورتات بتتجدد كل ~5 ساعات تلقائياً.
+- المستودع العام = تحديث تلقائي للموبايل. الخاص = السيرفر والويندوز (بتوكن) شغالين، والموبايل ينسخ يدوياً من `CONNECT.md`.
+- لا تمسح `ss_url.txt` — كل حاجة بتقرأ العنوان الحالي منه.

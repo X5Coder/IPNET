@@ -1,10 +1,12 @@
-# IPNET setup — 3 steps, 5 minutes
+# إعداد سيرفر جديد (مرة واحدة — من المتصفح فقط)
 
-1. Create a free GitHub account: https://github.com/signup
-2. Open IPNET, type a repo name, press Start.
-3. Click **Authorize** in the browser tab.
+1. حمّل `ipnet-bundle.zip` من [Releases](../../releases) وفك ضغطه.
+2. اعمل مستودع جديد على GitHub (عام = موبايل تلقائي، خاص = يدوي).
+3. ارفع كل محتويات الفولدر على المستودع (Upload files من المتصفح)،
+   مع الحفاظ على المسار `.github/workflows/proxy.yml`.
+4. افتح تبويب **Actions**: أول تشغيل يبدأ وحده بعد الرفع، ولو لا دوس
+   Run workflow على **USA Proxy**.
+5. بعد دقايق افتح **`CONNECT.md`** وانسخ منه حسب جهازك
+   (ويندوز: رابط الريبو في IPNET.exe — أندرويد: رابط sub.txt في v2rayNG).
 
-Done. IPNET creates the repo, uploads the server, starts it,
-and opens Chrome through the USA IP.
-
-Daily use: double-click IPNET, leave the terminal open.
+لا توكن ولا أوامر ولا برامج في الخطوة دي.
