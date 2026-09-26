@@ -20,7 +20,7 @@ Developer: **X5Coder** — Original repo: `https://github.com/X5Coder/proxy-usa`
 
 ## 3. Android (v2rayNG)
 
-1. Install **v2rayNG** (`arm64-v8a` build).
+1. Install **v2rayNG** — tap to download directly ([v2rayNG_2.2.6 `arm64-v8a`](https://github.com/2dust/v2rayNG/releases/download/2.2.6/v2rayNG_2.2.6_arm64-v8a.apk)).
 2. Menu → Subscription settings → + → paste the `sub.txt` URL from `CONNECT.md`.
 3. Update subscription → select **IPNET-USA** → connect (allow VPN).
 4. Check `ipinfo.io` → United States.
@@ -31,22 +31,6 @@ Developer: **X5Coder** — Original repo: `https://github.com/X5Coder/proxy-usa`
 - Self-checks every minute, heals on first failure, publishes the new port to `ss_url.txt` + `sub.txt` + `CONNECT.md`.
 - **One fixed link forever**: `sub.txt`. Ports rotate (~5h), the link never changes.
 - ISPs blocking plain `CONNECT` see only encrypted traffic.
-
-## Files
-
-| File | Purpose |
-|---|---|
-| `x5proxy.py` | Windows app (→ `IPNET.exe`), read-only |
-| `server.py` | HTTP/HTTPS forward proxy |
-| `singbox-server.json` | Shadowsocks server config |
-| `.github/workflows/proxy.yml` | Run + heal + publish |
-| `USER_README.md` | README for new copies |
-
-## Notes
-
-- SmartScreen "Unknown publisher": **More info → Run anyway** (no paid cert).
-- Random password per repo. Public repos only.
-- Never delete `ss_url.txt`.
 
 ## Rights
 
