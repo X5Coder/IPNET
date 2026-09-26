@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.3.1"
+APP_VERSION = "v1.4.0"
 TEMPLATE_URL = "https://github.com/X5Coder/proxy-usa"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -753,20 +753,71 @@ def stop_tunnel(proc, lf):
         pass
 
 
+def kill_stale_usa_chrome(profile):
+    """Kill leftover Chrome processes running OUR usa profile.
+
+    Why automatic (not a warning): Chrome keeps Preferences in memory and
+    rewrites the file on exit, so seeding while an old USA window lives
+    silently discards the fresh WebRTC/DoH policy AND the new window joins
+    the old process (fresh CLI flags ignored) -> real-IP WebRTC leak.
+    Only processes whose command line mentions our profile dir are
+    touched; the user's normal Chrome windows are never affected.
+    Returns number of killed processes (0 = none found).
+    """
+    killed = 0
+    try:
+        if os.name == "nt":
+            marker = os.path.basename(os.path.abspath(profile))
+            ps = ("Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+                  "Where-Object { $_.CommandLine -like '*" + marker + "*' } | "
+                  "ForEach-Object { $_.ProcessId }")
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                capture_output=True, text=True, timeout=20)
+            pids = [p.strip() for p in (out.stdout or "").split()
+                    if p.strip().isdigit()]
+            for pid in pids:
+                try:
+                    subprocess.run(["taskkill", "/F", "/PID", pid],
+                                   capture_output=True, timeout=10)
+                    killed += 1
+                except Exception:
+                    pass
+        else:
+            out = subprocess.run(["pkill", "-f", "chrome-usa"],
+                                 capture_output=True, timeout=10)
+            if out.returncode == 0:
+                killed = 1  # pkill gives no count; 1 = "something matched"
+    except Exception as e:
+        slog(f"Stale-profile check skipped: {e}", flush=True)
+    if killed:
+        slog(f"Closed {killed} stale USA window(s) to apply fresh protection.",
+             flush=True)
+        time.sleep(2)  # let file locks release before seeding
+    return killed
+
+
 def seed_chrome_profile(profile):
     """Write privacy prefs into the USA profile BEFORE Chrome starts.
 
     Fully automatic (the app does it on every launch, no user steps):
-    - Accept-Language en-US (existing behavior).
-    - webrtc.ip_handling_policy = disable_non_proxied_udp at PROFILE
-      level. This is what actually stops the leak: the CLI switch alone
-      is ignored once WebRTC has ever run in the profile, but the stored
-      profile pref wins every time and survives restarts.
-    Existing keys are preserved; Chrome must not be running on this
-    profile while we write (our flow always writes before first launch).
+    - Accept-Language en-US.
+    - webrtc.ip_handling_policy = disable_non_proxied_udp, written to
+      <profile>/Default/Preferences. That sub-path is what Chrome REALLY
+      reads (v1.3.x wrote the parent dir's Preferences, which Chrome
+      ignores -> the leak). Verified locally: with the policy in the
+      real file, ICE gathering yields zero public candidates through
+      our SOCKS tunnel (fail-closed, no real-IP srflx).
+    - DNS-over-HTTPS "secure" so name resolution stays inside the
+      encrypted stream (bore's TCP-only tunnel cannot carry plain UDP
+      DNS; without DoH it would leak to the local ISP).
+    Existing keys are preserved; call kill_stale_usa_chrome() first so a
+    running USA window cannot overwrite the seed on exit.
+    Returns True only if a read-back of the REAL file proves the policy.
     """
-    prefs = os.path.join(profile, "Preferences")
+    prefs = os.path.join(profile, "Default", "Preferences")
     try:
+        os.makedirs(os.path.join(profile, "Default"), exist_ok=True)
         data = {}
         if os.path.exists(prefs):
             try:
@@ -797,7 +848,17 @@ def seed_chrome_profile(profile):
         data["dns_over_https"] = doh
         with open(prefs, "w", encoding="utf-8") as f:
             json.dump(data, f)
-        return True
+        # Read-back from the file Chrome really uses (never trust the
+        # write alone: a running Chrome would silently revert it).
+        with open(prefs, "r", encoding="utf-8") as f:
+            cur = json.load(f) or {}
+        ok = (isinstance(cur.get("webrtc"), dict)
+              and cur["webrtc"].get("ip_handling_policy")
+              == "disable_non_proxied_udp")
+        if not ok:
+            slog("WARNING: WebRTC policy did not stick - leak test the "
+                 "window before sensitive browsing!", flush=True)
+        return ok
     except Exception as e:
         slog(f"Profile seed failed: {e}", flush=True)
         return False
@@ -808,23 +869,20 @@ def open_usa_chrome(chrome, url=None):
     url is opened only when given (first run); otherwise a normal window."""
     profile = os.path.join(app_dir(), "chrome-usa")
     os.makedirs(profile, exist_ok=True)
-    seed_chrome_profile(profile)
-    # Stale USA window check: Chrome owns Preferences while running, so a
-    # leftover window from an older version would keep the OLD (leaky)
-    # settings. Warn loudly instead of silently leaking.
-    try:
-        locked = os.path.exists(os.path.join(profile, "lockfile")) or os.path.exists(
-            os.path.join(profile, "SingletonSocket"))
-    except Exception:
-        locked = False
+    # Radical-automatic order: kill stale USA windows FIRST (a leftover
+    # window from a pre-fix version would keep leaky in-memory settings
+    # and swallow the fresh seed + CLI flags), then seed, then launch.
+    kill_stale_usa_chrome(profile)
+    armed = seed_chrome_profile(profile)
     # Read-back: prove what the profile will enforce (visible in terminal).
     try:
-        with open(os.path.join(profile, "Preferences"), "r", encoding="utf-8") as f:
+        with open(os.path.join(profile, "Default", "Preferences"),
+                  "r", encoding="utf-8") as f:
             cur = json.load(f) or {}
         slog(f"WebRTC policy armed: {cur.get('webrtc', {}).get('ip_handling_policy')} | "
-             f"DoH: {cur.get('dns_over_https', {}).get('mode')}" +
-             (" | WARNING: old USA Chrome window still open - close it!" if locked else ""),
-             flush=True)
+              f"DoH: {cur.get('dns_over_https', {}).get('mode')}" +
+              ("" if armed else " | NOT VERIFIED - test the window!"),
+              flush=True)
     except Exception:
         pass
     try:
@@ -832,7 +890,14 @@ def open_usa_chrome(chrome, url=None):
             chrome, f"--user-data-dir={profile}",
             f"--proxy-server=socks5://127.0.0.1:{LOCAL_SOCKS_PORT}",
             "--lang=en-US",
-            "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"]
+            # Belt and suspenders next to the profile pref (the pref is
+            # what provably closes the leak; the flag covers first-run
+            # races). --disable-quic forces HTTP/3 to fall back to TCP
+            # through the proxy: direct UDP 443 would bypass SOCKS and
+            # expose the real IP to QUIC-capable sites.
+            "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+            "--webrtc-ip-handling-policy=disable_non_proxied_udp",
+            "--disable-quic"]
         if url:
             args.append(url)
         subprocess.Popen(args)
