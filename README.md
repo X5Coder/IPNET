@@ -25,13 +25,13 @@ Developer: **X5Coder** — Original repo: `https://github.com/X5Coder/proxy-usa`
    - **remarks**: any name, e.g. `IPNET`.
    - **Optional URL**: your subscription link, e.g.
      `https://raw.githubusercontent.com/YOU/YOUR-REPO/main/sub.txt`
-     (replace `YOU/YOUR-REPO` — the exact link is in your repo's `README.md`).
+     (replace `YOU/YOUR-REPO` with yours).
    - **Enable update**: ON.
    - **Enable automatic update**: ON, interval `60`.
    - Leave the rest → press **✓** (top right) to save.
 3. Back on the main screen → **⋮** menu → **Update subscription** → server `IPNET-USA` appears.
 4. Tap the server to select it → press **▶** (bottom right) → allow VPN.
-5. Open `ipinfo.io` → United States.
+5. Open [ipleak.net](https://ipleak.net/) → United States.
 6. Not working? Restart the service from the notification (or stop/start in
    the app), then ⋮ → **Update subscription** → connect again.
 
