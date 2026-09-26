@@ -34,14 +34,8 @@ class SslocalTunnel(private val ctx: Context) {
 
     fun start(host: String, port: Int, password: String, method: String) {
         stop()
+        val bin = resolveBinary()
         val dir = File(ctx.filesDir, "bin").apply { mkdirs() }
-        val bin = File(dir, "sslocal")
-        if (!bin.exists()) {
-            ctx.assets.open("bin/arm64-v8a/sslocal").use { inp ->
-                bin.outputStream().use { out -> inp.copyTo(out) }
-            }
-            Runtime.getRuntime().exec(arrayOf("chmod", "755", bin.absolutePath)).waitFor()
-        }
         val confFile = File(dir, "sslocal.json")
         confFile.writeText(buildSocksConfig(host, port, password, method))
         proc = ProcessBuilder(bin.absolutePath, "-c", confFile.absolutePath, "-u")
@@ -67,5 +61,35 @@ class SslocalTunnel(private val ctx: Context) {
             proc?.waitFor()
         } catch (_: Exception) { }
         proc = null
+    }
+
+    /**
+     * Binary resolution order (first executable wins):
+     *  1. jniLibs copy (libsslocal.so): the package manager itself marks
+     *     it executable at install time — immune to chmod/noexec quirks.
+     *     This fixed error=13 Permission denied on Android 14.
+     *  2. filesDir copy from assets + chmod (legacy fallback).
+     */
+    private fun resolveBinary(): File {
+        val sys = File(ctx.applicationInfo.nativeLibraryDir, "libsslocal.so")
+        if (sys.exists() && sys.canExecute()) return sys
+        val dir = File(ctx.filesDir, "bin").apply { mkdirs() }
+        val bin = File(dir, "sslocal")
+        var fresh = false
+        if (!bin.exists()) {
+            ctx.assets.open("bin/arm64-v8a/sslocal").use { inp ->
+                bin.outputStream().use { out -> inp.copyTo(out) }
+            }
+            fresh = true
+        }
+        if (fresh || !bin.canExecute()) {
+            try {
+                Runtime.getRuntime().exec(arrayOf("chmod", "755", bin.absolutePath)).waitFor()
+            } catch (_: Exception) { }
+        }
+        if (!bin.canExecute()) {
+            throw RuntimeException("sslocal not executable (tried libdir+chmod)")
+        }
+        return bin
     }
 }

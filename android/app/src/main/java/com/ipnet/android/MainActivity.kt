@@ -125,6 +125,10 @@ class MainActivity : AppCompatActivity() {
         mainSection.addView(uploadBtn)
         vpnBtn = action("تشغيل VPN") { startVpn() }
         mainSection.addView(vpnBtn)
+        mainSection.addView(action("تشغيل سوكس فقط (بدون VPN)") { startSocks() })
+        mainSection.addView(title(
+            "وضع السوكس: يشغل 127.0.0.1:1080 بدون أي موافقة نظام — حطه يدوياً في تيليجرام (الإعدادات ← البيانات والتخزين ← البروكسي ← SOCKS5).",
+            11f, false, MUTED))
         ipLabel = title("", 13f, true, "#15803D")
         mainSection.addView(ipLabel)
         mainSection.addView(action("فحص المكونات") { runDiagnostics() })

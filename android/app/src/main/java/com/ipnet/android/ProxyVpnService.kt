@@ -27,6 +27,7 @@ import java.io.File
 class ProxyVpnService : VpnService() {
     companion object {
         const val ACTION_STOP = "com.ipnet.android.STOP_VPN"
+        const val ACTION_SOCKS = "com.ipnet.android.START_SOCKS"
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -63,6 +64,28 @@ class ProxyVpnService : VpnService() {
         Prefs.save(this, intent?.getStringExtra("owner") ?: Prefs.load(this)["owner"].orEmpty(),
             intent?.getStringExtra("repo") ?: Prefs.load(this)["repo"].orEmpty(),
             host, port, password, method)
+        if (intent?.action == ACTION_SOCKS) {
+            // Socks-only mode: NO Tunis, NO system VPN consent needed.
+            // ss-local listens on 127.0.0.1:1080; apps with manual proxy
+            // settings (e.g. Telegram) point at it directly.
+            scope.launch {
+                try {
+                    stopAll()
+                    Prefs.clearError(this@ProxyVpnService)
+                    tr("socks-only starting")
+                    SslocalTunnel(this@ProxyVpnService).also { ss = it }
+                        .start(host, port, password, method)
+                    tr("socks-only alive on 127.0.0.1:1080")
+                } catch (t: Throwable) {
+                    Prefs.saveError(this@ProxyVpnService,
+                        t.message ?: t.javaClass.simpleName)
+                    tr("SOCKS DIED: ${t.javaClass.simpleName}: ${t.message}")
+                    stopAll()
+                    stopSelf()
+                }
+            }
+            return START_STICKY
+        }
         scope.launch {
             try {
                 stopAll()

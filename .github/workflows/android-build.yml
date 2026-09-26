@@ -46,7 +46,11 @@ jobs:
           cd ..
           mkdir -p app/src/main/assets/bin/arm64-v8a
           cp ss-rust/target/aarch64-linux-android/release/sslocal app/src/main/assets/bin/arm64-v8a/sslocal
-          ls -la app/src/main/assets/bin/arm64-v8a/
+          # Second copy as a "native lib": the package manager installs it
+          # executable, immune to the error=13 EACCES seen on Android 14.
+          mkdir -p app/src/main/jniLibs/arm64-v8a
+          cp ss-rust/target/aarch64-linux-android/release/sslocal app/src/main/jniLibs/arm64-v8a/libsslocal.so
+          ls -la app/src/main/assets/bin/arm64-v8a/ app/src/main/jniLibs/arm64-v8a/
 
       - name: Build hev-socks5-tunnel JNI lib (arm64)
         run: |
