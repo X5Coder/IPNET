@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.3.0"
+APP_VERSION = "v1.3.1"
 TEMPLATE_URL = "https://github.com/X5Coder/proxy-usa"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -786,6 +786,15 @@ def seed_chrome_profile(profile):
             web = {}
         web["ip_handling_policy"] = "disable_non_proxied_udp"
         data["webrtc"] = web
+        # DNS-over-HTTPS through the proxy (UDP DNS relay is impossible
+        # over bore's TCP-only tunnel, so plain UDP DNS would leak to the
+        # ISP - DoH keeps name resolution inside the encrypted stream).
+        doh = data.get("dns_over_https")
+        if not isinstance(doh, dict):
+            doh = {}
+        doh["mode"] = "secure"
+        doh["templates"] = "https://1.1.1.1/dns-query{?dns}"
+        data["dns_over_https"] = doh
         with open(prefs, "w", encoding="utf-8") as f:
             json.dump(data, f)
         return True
@@ -800,6 +809,24 @@ def open_usa_chrome(chrome, url=None):
     profile = os.path.join(app_dir(), "chrome-usa")
     os.makedirs(profile, exist_ok=True)
     seed_chrome_profile(profile)
+    # Stale USA window check: Chrome owns Preferences while running, so a
+    # leftover window from an older version would keep the OLD (leaky)
+    # settings. Warn loudly instead of silently leaking.
+    try:
+        locked = os.path.exists(os.path.join(profile, "lockfile")) or os.path.exists(
+            os.path.join(profile, "SingletonSocket"))
+    except Exception:
+        locked = False
+    # Read-back: prove what the profile will enforce (visible in terminal).
+    try:
+        with open(os.path.join(profile, "Preferences"), "r", encoding="utf-8") as f:
+            cur = json.load(f) or {}
+        slog(f"WebRTC policy armed: {cur.get('webrtc', {}).get('ip_handling_policy')} | "
+             f"DoH: {cur.get('dns_over_https', {}).get('mode')}" +
+             (" | WARNING: old USA Chrome window still open - close it!" if locked else ""),
+             flush=True)
+    except Exception:
+        pass
     try:
         args = [
             chrome, f"--user-data-dir={profile}",
