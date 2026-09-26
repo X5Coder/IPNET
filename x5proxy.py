@@ -3,27 +3,24 @@
 IPNET - one-click USA proxy.
 Single EXE distributed via GitHub Releases.
 
-First launch: a very simple window explains (in English) what to do:
-  1. Create a free GitHub account
-  2. Create a new PUBLIC empty repository
-  3. Create a token, paste the repo URL + token, press Start
-The app then automatically: uploads the server project to your repo,
-starts the GitHub Action, waits for the encrypted endpoint, saves
+Each launch shows the same simple window:
+  1. Paste your proxy repo link (public, or private + token below).
+  2. Press Start.
+The app pulls the live endpoint + password from the repo files (no
+upload, no GitHub login, no tokens needed for public repos), saves
 everything, starts the local tunnel and opens Chrome through the USA IP.
 
-Every next launch: a terminal window shows the proxy address, refreshes
-the newest IP/endpoint automatically and opens Chrome. If the repo is
-missing or anything breaks, the setup window opens again asking for the
-repo URL.
+First-time server setup is manual (once): download ipnet-bundle.zip from
+Releases, upload its folder to a new repo (GitHub web UI), and the
+workflow starts by itself and keeps itself alive.
 
 Windows: config at %APPDATA%/IPNET/config.json (chosen at setup).
-Needs on PC: internet + Chrome. No git needed (uses GitHub API).
+Needs on PC: internet + Chrome.
 """
 import base64
 import json
 import os
 import re
-import secrets
 import shutil
 import subprocess
 import sys
@@ -33,20 +30,10 @@ import urllib.error
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.1.0"
-CANONICAL_REPO = "X5Coder/proxy-usa"  # templates are downloaded from here
-PROJECT_FILES = [
-    "server.py",
-    "singbox-server.json",
-    ".github/workflows/proxy.yml",
-    "ss-client-template.json",
-    ".gitignore",
-    "USER_README.md",  # uploaded as README.md (credits + channel button)
-]
+APP_VERSION = "v1.2.0"
 API = "https://api.github.com"
 RAW = "https://raw.githubusercontent.com"
 SB_VERSION = "1.14.2"
-GH_VERSION = "2.101.0"
 SS_METHOD = "aes-256-gcm"
 LOCAL_SOCKS_PORT = 1080
 
@@ -172,95 +159,32 @@ def save_config(cfg):
         json.dump(cfg, f, indent=2)
 
 
-def gh_bin():
-    d = os.path.join(app_dir(), "bin")
-    os.makedirs(d, exist_ok=True)
-    if os.name == "nt":
-        return os.path.join(d, "gh.exe")
-    return os.path.join(d, "gh")
-
-
-def ensure_gh(log=slog):
-    """Download GitHub CLI once. Returns path to gh binary."""
-    exe = gh_bin()
-    if os.path.exists(exe):
-        return exe
-    log("Downloading GitHub login helper (one time) ...")
-    if os.name == "nt":
-        asset = f"gh_{GH_VERSION}_windows_amd64.zip"
-    else:
-        asset = f"gh_{GH_VERSION}_linux_amd64.tar.gz"
-    url = f"https://github.com/cli/cli/releases/download/v{GH_VERSION}/{asset}"
-    tmp = os.path.join(os.path.dirname(exe), asset)
-    urllib.request.urlretrieve(url, tmp)
-    if tmp.endswith(".zip"):
-        with zipfile.ZipFile(tmp, "r") as z:
-            z.extractall(os.path.dirname(exe))
-        for root, _, files in os.walk(os.path.dirname(exe)):
-            if "gh.exe" in files:
-                shutil.copy(os.path.join(root, "gh.exe"), exe)
-                break
-    else:
-        import tarfile
-        with tarfile.open(tmp, "r:gz") as t:
-            t.extractall(os.path.dirname(exe))
-        for root, _, files in os.walk(os.path.dirname(exe)):
-            if "gh" in files and not root.endswith(".git"):
-                shutil.copy(os.path.join(root, "gh"), exe)
-                break
-    try:
-        os.remove(tmp)
-    except Exception:
-        pass
-    if os.name != "nt":
-        os.chmod(exe, 0o755)
-    return exe
-
-
-def gh_run(*args, timeout=30):
-    try:
-        p = subprocess.run([gh_bin()] + list(args), capture_output=True,
-                           text=True, timeout=timeout)
-        return p.returncode, (p.stdout or "").strip()
-    except Exception as e:
-        return 99, str(e)
-
-
-def gh_logged_in():
-    code, _ = gh_run("auth", "status")
-    return code == 0
-
-
-def gh_login_flow():
-    """Browser login: user only clicks in GitHub, no token to copy."""
-    slog("Opening GitHub login in your browser ...", flush=True)
-    slog("Click Authorize, then return here.", flush=True)
-    rc = subprocess.call([gh_bin(), "auth", "login", "--web",
-                          "--skip-ssh-key"])
-    if rc != 0 or not gh_logged_in():
-        raise RuntimeError("GitHub login did not complete. Try again.")
-    slog("GitHub login OK.", flush=True)
-
-
-def gh_token():
-    code, out = gh_run("auth", "token")
-    if code == 0 and out:
-        return out.splitlines()[0].strip()
-    return ""
-
-
-def gh_username(token):
-    code, data = api_req("GET", f"{API}/user", token)
-    if code == 200 and data.get("login"):
-        return data["login"]
-    return ""
-
-
 def api_token(cfg):
-    """Auth for API calls: saved token, else live gh login token."""
-    if cfg.get("token"):
-        return cfg["token"]
-    return gh_token()
+    """Saved token for private-repo reads (empty for public repos)."""
+    return cfg.get("token") or ""
+
+
+def api_file(owner, repo, token, path):
+    """Fresh file content via Contents API (no CDN cache).
+    Returns text, '' when truly absent (404), raises on auth/rate errors."""
+    code, data = api_req("GET",
+                         f"{API}/repos/{owner}/{repo}/contents/{path}?ref=main",
+                         token)
+    if code == 404:
+        return ""
+    if code == 403 and "rate limit" in str(data.get("error", "")).lower():
+        raise RuntimeError("GitHub rate limit - try again in a minute.")
+    if code == 401:
+        raise RuntimeError("Token rejected (401) - check it and retry.")
+    if code != 200:
+        raise RuntimeError(f"Cannot read {path} (HTTP {code}).")
+    try:
+        content = (data.get("content") or "").replace("\n", "")
+        if not content:
+            return ""
+        return base64.b64decode(content).decode("utf-8", "ignore")
+    except Exception:
+        return ""
 
 
 def api_req(method, url, token, payload=None):
@@ -306,10 +230,6 @@ def parse_repo_url(s):
     if m and "/" in s and " " not in s:
         return m.group(1), m.group(2)
     return None
-
-
-def download_template(path):
-    return raw_get(f"{RAW}/{CANONICAL_REPO}/main/{path}")
 
 
 def extract_password_from_repo_text(singbox_text="", workflow_text="", server_text=""):
@@ -369,138 +289,52 @@ def fetch_public_repo_snapshot(owner, repo):
             "password": password, "method": method, "has_code": has_code}
 
 
-def try_attach_public_repo(owner, repo, log=slog):
-    """Attach to an already-working PUBLIC repo: pull endpoint+password
-    and work directly WITHOUT re-uploading. No login needed."""
-    log(f"Checking public repo {owner}/{repo} ...")
-    snap = fetch_public_repo_snapshot(owner, repo)
+def setup_attach(repo_text, token, log):
+    """Follow-only attach (v1.2.0: no upload, no login).
+    - Public repo: pull endpoint+password from public files, no token.
+    - Private repo: same via Contents API using the pasted token.
+    Raises RuntimeError with a plain message when there is nothing
+    usable yet (empty repo / still building / wrong link)."""
+    parsed = parse_repo_url(repo_text or "")
+    if not parsed:
+        raise RuntimeError("Paste a repo link, e.g. https://github.com/YOU/my-proxy")
+    owner, repo = parsed
+    token = (token or "").strip()
+    log(f"Checking {owner}/{repo} ...")
+    if token:
+        snap = {"endpoint": "", "password": "", "method": SS_METHOD,
+                "has_code": False}
+        singbox = api_file(owner, repo, token, "singbox-server.json")
+        workflow = api_file(owner, repo, token, ".github/workflows/proxy.yml")
+        snap["has_code"] = bool(singbox or workflow)
+        server_text = ""
+        if not snap["has_code"]:
+            server_text = api_file(owner, repo, token, "server.py")
+            snap["has_code"] = bool(server_text and "proxy" in server_text.lower())
+        snap["password"], snap["method"] = extract_password_from_repo_text(
+            singbox, workflow, server_text)
+        ss = api_file(owner, repo, token, "ss_url.txt").strip()
+        bore = api_file(owner, repo, token, "bore_url.txt").strip()
+        if re.match(r"bore\.pub:\d+", ss):
+            snap["endpoint"] = ss
+        elif re.match(r"bore\.pub:\d+", bore):
+            snap["endpoint"] = bore
+    else:
+        snap = fetch_public_repo_snapshot(owner, repo)
     if not snap["has_code"]:
-        raise RuntimeError(f"No proxy code in {owner}/{repo} (empty or private?).")
+        raise RuntimeError("No proxy code in this repo yet (empty or private "
+                           "without token?). Upload the bundle first, or paste "
+                           "a token for private repos.")
     if not snap["password"]:
-        raise RuntimeError(f"Code found in {owner}/{repo} but password unreadable.")
+        raise RuntimeError("Code found but password unreadable - re-upload the bundle.")
     cfg = {"owner": owner, "repo": repo, "password": snap["password"],
            "method": snap.get("method") or SS_METHOD,
-           "attached": True, "readonly": True}
+           "token": token, "attached": True, "readonly": True}
     save_config(cfg)
     if snap["endpoint"]:
-        log(f"Attached! Live endpoint: {snap['endpoint']} (no upload).")
+        log(f"Attached! Live endpoint: {snap['endpoint']}")
     else:
-        log("Attached! Code found, no live endpoint yet - will pick up auto.")
-    return cfg
-
-
-def put_file(owner, repo, token, path, content, msg):
-    url = f"{API}/repos/{owner}/{repo}/contents/{path}"
-    req = urllib.request.Request(url)
-    req.add_header("Accept", "application/vnd.github+json")
-    req.add_header("Authorization", f"Bearer {token}")
-    sha = None
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            sha = json.loads(r.read().decode()).get("sha")
-    except Exception:
-        sha = None
-    payload = {"message": msg,
-               "content": base64.b64encode(content.encode("utf-8")).decode()}
-    if sha:
-        payload["sha"] = sha
-    return api_req("PUT", url, token, payload)
-
-
-def setup_backend(repo_name, log):
-    """Attach to ready public repo OR classic setup.
-    - Paste owner/repo link with working code -> attach directly, no upload.
-    - Empty/no-code -> login -> create under your account -> upload -> start."""
-    parsed = parse_repo_url(repo_name or "")
-    if parsed:
-        url_owner, url_repo = parsed
-        try:
-            return try_attach_public_repo(url_owner, url_repo, log)
-        except RuntimeError as e:
-            log(f"Direct attach failed: {e} - falling back to own copy.")
-            repo_name_fallback = url_repo
-        except Exception as e:
-            log(f"Direct attach failed: {e} - falling back to own copy.")
-            repo_name_fallback = url_repo
-    else:
-        repo_name_fallback = repo_name
-    ensure_gh(log)
-    if not gh_logged_in():
-        log("A browser window will open: click Authorize on GitHub.")
-        gh_login_flow()
-    token = gh_token()
-    if not token:
-        raise RuntimeError("Could not get GitHub access. Try again.")
-    owner = gh_username(token)
-    if not owner:
-        raise RuntimeError("Could not read GitHub username. Try again.")
-    parsed2 = parse_repo_url(repo_name_fallback or "")
-    if parsed2:
-        repo = parsed2[1]
-    else:
-        repo = re.sub(r"[^A-Za-z0-9_.-]", "-", (repo_name_fallback or "my-usa-proxy").strip()) or "my-usa-proxy"
-    log(f"Checking {owner}/{repo} ...")
-    code, _ = api_req("GET", f"{API}/repos/{owner}/{repo}", token)
-    if code == 404:
-        log(f"Creating public repo {repo} ...")
-        code, _ = api_req("POST", f"{API}/user/repos", token,
-                          {"name": repo, "private": False,
-                           "description": "My private USA proxy (IPNET)"})
-        if code not in (200, 201):
-            raise RuntimeError("Could not create the repo. Create it manually at "
-                               "https://github.com/new (Public, empty).")
-    elif code != 200:
-        raise RuntimeError("Cannot access the repo. Make it PUBLIC.")
-    # Reuse existing password on same owned repo so we don't kill a live endpoint.
-    password = ""
-    try:
-        snap_owned = fetch_public_repo_snapshot(owner, repo)
-        if snap_owned.get("password"):
-            password = snap_owned["password"]
-            log("Reusing existing password from your repo.")
-    except Exception:
-        pass
-    if not password:
-        password = "X5_" + secrets.token_urlsafe(14).replace("-", "S").replace("_", "s") + "!Strong"
-    for src in PROJECT_FILES:
-        # USER_README.md becomes the repo's README.md (no secrets inside)
-        path = "README.md" if src == "USER_README.md" else src
-        log(f"Uploading {path} ...")
-        content = download_template(src)
-        if not content:
-            raise RuntimeError(f"Cannot download template {src}. Check internet.")
-        content = content.replace("X5_Secure_2026!Strong", password)
-        code, _ = put_file(owner, repo, token, path, content, f"x5proxy: add {path}")
-        if code not in (200, 201):
-            raise RuntimeError(f"Upload of {path} failed (HTTP {code}).")
-        time.sleep(0.5)
-    log("Starting your USA server ...")
-    code, _ = api_req("POST",
-                      f"{API}/repos/{owner}/{repo}/actions/workflows/proxy.yml/dispatches",
-                      token, {"ref": "main"})
-    if code not in (201, 204):
-        log("Auto-start got HTTP %s. You can start it once manually:" % code)
-        log(f"https://github.com/{owner}/{repo}/actions")
-    log(f"Waiting for the encrypted endpoint on {owner}/{repo} "
-          "(up to ~12 min) ...")
-    endpoint = ""
-    started = time.time()
-    for i in range(48):
-        time.sleep(15)
-        v = raw_get(f"{RAW}/{owner}/{repo}/main/ss_url.txt")
-        if re.match(r"bore\.pub:\d+", v or ""):
-            endpoint = v
-            break
-        mins = int((time.time() - started) // 60) + 1
-        log(f"... still building (~{mins} min elapsed)")
-    cfg = {"owner": owner, "repo": repo,
-           "password": password, "method": SS_METHOD,
-           "attached": False, "readonly": False}
-    save_config(cfg)
-    if endpoint:
-        log(f"Ready! Endpoint: {endpoint}")
-    else:
-        log("Server still building - the app will pick it up automatically.")
+        log("Attached! Server still building - picked up automatically.")
     return cfg
 
 
@@ -760,39 +594,31 @@ def gui_setup(error_msg=""):
     tk.Label(wrap, text="USA proxy in one click.", bg=PAPER, fg=MUTED,
              font=("Segoe UI", 11)).pack(anchor="w", pady=(0, 14))
 
-    tk.Label(wrap, text="1  —  GitHub account", bg=PAPER, fg=INK,
+    saved_cfg = load_config() or {}
+    saved_link = ""
+    if saved_cfg.get("owner") and saved_cfg.get("repo"):
+        saved_link = f"https://github.com/{saved_cfg['owner']}/{saved_cfg['repo']}"
+    saved_token = saved_cfg.get("token", "")
+
+    tk.Label(wrap, text="1  —  Repo link", bg=PAPER, fg=INK,
              font=("Segoe UI", 9, "bold")).pack(anchor="w")
-    tk.Label(wrap, text="Free, once.  Click the link to copy it.",
+    tk.Label(wrap, text="Paste your proxy repo link (from CONNECT.md).",
              bg=PAPER, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 2))
-    # clickable link card: single click copies + toast (realistic for tk)
-    LINK_BG, LINK_FG = "#EFF6FF", "#1D4ED8"
-    link_card = tk.Frame(wrap, bg=LINK_BG, highlightthickness=1,
-                         highlightbackground="#BFDBFE")
-    link_card.pack(fill="x", pady=3)
-    link_lbl = tk.Label(link_card, text="https://github.com/signup",
-                        bg=LINK_BG, fg=LINK_FG, cursor="hand2",
-                        font=("Consolas", 9, "underline"))
-    link_lbl.pack(side="left", padx=10, pady=8)
-    hint_lbl = tk.Label(link_card, text="Click to copy",
-                        bg=LINK_BG, fg="#60A5FA", font=("Segoe UI", 8))
-    hint_lbl.pack(side="right", padx=10)
-
-    def _copy_signup(_evt=None):
-        copy_text("https://github.com/signup", "Link copied!")
-
-    for _w in (link_card, link_lbl, hint_lbl):
-        _w.bind("<Button-1>", _copy_signup)
-        _w.configure(cursor="hand2")
-    hairline()
-
-    tk.Label(wrap, text="2  —  Repo name or URL", bg=PAPER, fg=INK,
-             font=("Segoe UI", 9, "bold")).pack(anchor="w")
-    tk.Label(wrap, text="Example: my-usa-proxy  or  https://github.com/YOU/my-usa-proxy",
-             bg=PAPER, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 2))
-    repo_var = tk.StringVar(value="")
+    repo_var = tk.StringVar(value=saved_link)
     tk.Entry(wrap, textvariable=repo_var, bg=FIELD, fg=INK, relief="solid",
              borderwidth=1, highlightthickness=1, highlightcolor=INK,
              highlightbackground=HAIR, font=("Segoe UI", 9),
+             insertbackground=INK).pack(fill="x", pady=3)
+    hairline()
+
+    tk.Label(wrap, text="2  —  Token (private repos only)", bg=PAPER, fg=INK,
+             font=("Segoe UI", 9, "bold")).pack(anchor="w")
+    tk.Label(wrap, text="Leave empty for public repos.",
+             bg=PAPER, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 2))
+    token_var = tk.StringVar(value=saved_token)
+    tk.Entry(wrap, textvariable=token_var, show="•", bg=FIELD, fg=INK, relief="solid",
+             borderwidth=1, highlightthickness=1, highlightcolor=INK,
+             highlightbackground=HAIR, font=("Consolas", 9),
              insertbackground=INK).pack(fill="x", pady=3)
     hairline()
 
@@ -825,7 +651,7 @@ def gui_setup(error_msg=""):
     browse_btn.pack(side="right")
     hairline()
 
-    tk.Label(wrap, text="Press Start, click Authorize in the browser. The rest is automatic.",
+    tk.Label(wrap, text="Paste the link, press Start. No login, no tokens (public repos).",
              bg=PAPER, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 12))
 
     status = tk.StringVar(value=error_msg)
@@ -852,10 +678,11 @@ def gui_setup(error_msg=""):
     def on_start():
         if not enabled["v"]:
             return
-        name = (repo_var.get() or "").strip()
-        if not name:
-            status.set("Type a repo name (my-usa-proxy) or paste a repo URL.")
+        link = (repo_var.get() or "").strip()
+        if not link:
+            status.set("Paste your repo link first.")
             return
+        tok = (token_var.get() or "").strip()
         d = (path_var.get() or "").strip() or get_data_dir()
         enabled["v"] = False
         btn.set_enabled(False)
@@ -866,7 +693,7 @@ def gui_setup(error_msg=""):
             enabled["v"] = True
             btn.set_enabled(True)
             return
-        status.set("Working ... browser login, then full auto setup. Check the terminal window too.")
+        status.set("Reading the repo ...")
         pb.pack(fill="x", pady=(0, 4))
         pb.start(12)
 
@@ -880,9 +707,9 @@ def gui_setup(error_msg=""):
 
         root.update()
         try:
-            cfg = setup_backend(name, log)
+            cfg = setup_attach(link, tok, log)
             result["cfg"] = cfg
-            status.set("Ready! Restarting into run mode ...")
+            status.set("Ready! Starting ...")
             pb.stop()
             root.update()
             time.sleep(1)
@@ -1055,65 +882,6 @@ def proxy_working(timeout=12):
             pass
 
 
-def cancel_stuck_runs(cfg):
-    """Cancel any in-progress proxy runs so a fresh one can take over."""
-    token = api_token(cfg)
-    if not token:
-        return 0
-    try:
-        code, data = api_req(
-            "GET",
-            f"{API}/repos/{cfg['owner']}/{cfg['repo']}"
-            "/actions/workflows/proxy.yml/runs?status=in_progress&per_page=5",
-            token)
-        if code != 200:
-            return 0
-        n = 0
-        for r in (data.get("workflow_runs") or []):
-            rc, _ = api_req("POST",
-                            f"{API}/repos/{cfg['owner']}/{cfg['repo']}"
-                            f"/actions/runs/{r['id']}/cancel",
-                            token)
-            if rc in (202, 204):
-                n += 1
-        return n
-    except Exception:
-        return 0
-
-
-def request_fresh_server(cfg, log=slog):
-    """Ask GitHub for a brand-new server run. Returns True if accepted."""
-    token = api_token(cfg)
-    if not token:
-        log("GitHub session expired. Restart the app to log in again.")
-        return False
-    cancel_stuck_runs(cfg)
-    code, data = api_req(
-        "POST",
-        f"{API}/repos/{cfg['owner']}/{cfg['repo']}/actions/workflows/proxy.yml/dispatches",
-        token, {"ref": "main"})
-    if code in (201, 204):
-        log("Fresh server requested. Waiting for the new endpoint ...")
-        return True
-    log(f"Could not request a fresh server (HTTP {code}). Will retry later.")
-    return False
-
-
-def wait_for_new_endpoint(cfg, current):
-    """Block until a DIFFERENT endpoint is published (after a heal
-    dispatch). Returns it, or '' on timeout (~12 min)."""
-    for _w in range(48):
-        time.sleep(15)
-        _, fresh = fetch_endpoint(cfg)
-        if fresh and fresh != current:
-            slog(f"New endpoint: {fresh}", flush=True)
-            return fresh
-        if (_w + 1) % 4 == 0:
-            slog(f"... waiting for new server ({(_w + 1) * 15 // 60} min so far)",
-                  flush=True)
-    return ""
-
-
 def start_tunnel(exe, client_cfg):
     """Start sing-box quietly (logs go to a file, terminal stays clean)."""
     lf = open(tunnel_log_path(), "a", encoding="utf-8")
@@ -1184,21 +952,19 @@ def run_terminal(cfg):
             slog("Old tunnel log cleared (>2MB).", flush=True)
     except Exception:
         pass
-    # repo sanity check (needs GitHub session only for healing/dispatch)
+    # repo sanity check (only when a token was given, e.g. private repo)
     token = api_token(cfg)
     if token:
         code, _ = api_req("GET", f"{API}/repos/{cfg['owner']}/{cfg['repo']}",
                           token)
         if code == 404:
-            raise RuntimeError("Repo not found (renamed/deleted?). Enter it again.")
+            raise RuntimeError("Repo not found (renamed/deleted/private without token?).")
         if code == 401:
-            slog("GitHub session expired - you will be asked to log in again if needed.",
-                  flush=True)
+            raise RuntimeError("Token rejected (401) - paste a fresh one.")
     proc = None
     tun_log = None
     current = ""
     dead = 0
-    last_heal = 0
     client_cfg = os.path.join(app_dir(), "sb-client.json")
     slog("=" * 60)
     slog(f"  {APP_NAME} {APP_VERSION} - USA proxy (leave this window OPEN)")
@@ -1240,22 +1006,12 @@ def run_terminal(cfg):
                     json.dump(ccfg, f)
                 stop_tunnel(proc, tun_log)
                 proc, tun_log = start_tunnel(exe, client_cfg)
-                # startup check: if the published endpoint is already dead,
-                # heal NOW instead of waiting 3 loop cycles (restart fix).
+                # startup check: dead on arrival -> the server self-heals and
+                # publishes a new endpoint; we just follow it (follow-only).
                 if first_run and not proxy_working():
                     first_run = False
-                    if cfg.get("readonly"):
-                        slog("Proxy not responding on startup - read-only mode: "
-                              "waiting for owner to publish new endpoint ...", flush=True)
-                    else:
-                        slog("Proxy not responding on startup - "
-                              "requesting a fresh server ...", flush=True)
-                        if not api_token(cfg):
-                            raise RuntimeError(
-                                "GitHub session expired. Log in again to heal the server.")
-                        if request_fresh_server(cfg):
-                            if wait_for_new_endpoint(cfg, current):
-                                continue  # reconfigure for the new endpoint
+                    slog("Proxy not responding on startup - "
+                          "waiting for the server's fresh endpoint ...", flush=True)
                 first_run = False
                 slog("-" * 60)
                 slog(f"PROXY ADDRESS (manual use): 127.0.0.1:{LOCAL_SOCKS_PORT} (SOCKS5 + HTTP)")
@@ -1287,45 +1043,16 @@ def run_terminal(cfg):
                 dead = 0
             elif current:
                 dead += 1
-                slog(f"Proxy not responding ({dead}/2) - getting a new one ...",
-                     flush=True)
-                if dead >= 2 and time.time() - last_heal > 120:
-                    last_heal = time.time()
-                    dead = 0
-                    if cfg.get("readonly"):
-                        slog("Read-only mode: cannot restart someone else's server. "
-                              "Waiting for new endpoint ...", flush=True)
-                        continue
-                    if not api_token(cfg):
-                        raise RuntimeError(
-                            "GitHub session expired. Log in again to heal the server.")
-                    slog("Requesting a fresh USA server (takes a few minutes) ...",
-                          flush=True)
-                    if request_fresh_server(cfg):
-                        wait_for_new_endpoint(cfg, current)
-            time.sleep(30)
+                if dead == 1 or dead % 3 == 0:
+                    slog(f"Proxy not responding ({dead}) - server self-heals, "
+                          "following its fresh endpoint ...", flush=True)
+                # Follow-only: the workflow heals itself on FIRST failure and
+                # publishes a new endpoint; the loop above picks it up.
+            time.sleep(20)
     except KeyboardInterrupt:
         slog("\nStopping...")
     finally:
         stop_tunnel(proc, tun_log)
-
-
-def restart_fresh():
-    """Relaunch a clean copy of this app, then exit (used after setup)."""
-    try:
-        args = [a for a in sys.argv[1:] if a != "--reset"]
-        if getattr(sys, "frozen", False):
-            cmd = [sys.executable] + args  # PyInstaller EXE relaunches itself
-        else:
-            # source mode: must pass the script path, a bare python.exe
-            # would open an empty interpreter and the app never comes back
-            cmd = [sys.executable, os.path.abspath(__file__)] + args
-        subprocess.Popen(cmd)
-    except Exception as e:
-        slog(f"Auto-restart failed ({e}). Please open the app again.",
-              flush=True)
-        return False
-    return True
 
 
 def main():
@@ -1335,33 +1062,17 @@ def main():
         except Exception:
             pass
     try:
+        # Same screen on EVERY launch, prefilled with the last saved link.
         while True:
-            cfg = load_config()
+            cfg = gui_setup()
             if not cfg:
-                cfg = gui_setup()
-                if not cfg:
-                    return  # user closed the window
-                slog("Setup complete. Restarting into run mode ...", flush=True)
-                time.sleep(1)
-                if restart_fresh():
-                    return
-                # fall through to run_terminal if relaunch failed
+                return  # user closed the window
             try:
                 run_terminal(cfg)
                 return
             except RuntimeError as e:
                 slog(f"Problem: {e}", flush=True)
-                try:
-                    os.remove(config_path())
-                except Exception:
-                    pass
-                cfg = gui_setup(str(e))
-                if not cfg:
-                    return
-                slog("Setup complete. Restarting into run mode ...", flush=True)
-                time.sleep(1)
-                if restart_fresh():
-                    return
+                continue  # reopen the same screen with saved values
     except KeyboardInterrupt:
         slog("\nStopping...")
     except Exception as e:
