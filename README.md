@@ -4,9 +4,9 @@
 
 # IPNET
 
-### 🇺🇸 بروكسي أمريكي بضغطة واحدة — شبكتك الأمريكية الخاصة
+### 🇺🇸 USA Proxy in One Click — Your Own Private USA Network
 
-سيرفر أمريكي مجاني (GitHub Actions) · تطبيق ويندوز · اشتراك للموبايل
+Free US server (GitHub Actions) · Windows app · Phone subscription
 
 <br>
 
@@ -20,9 +20,9 @@
 
 <div align="center">
 
-### ⬇️ تحميل مباشر
+### ⬇️ Direct Download
 
-| 🖥️ ويندوز | 📱 أندرويد |
+| 🖥️ Windows | 📱 Android |
 |:---:|:---:|
 | <a href="https://github.com/X5Coder/IPNET/releases/latest/download/IPNET.exe"><img src="https://img.shields.io/badge/Download-IPNET.exe-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download IPNET.exe"></a> | <a href="https://github.com/2dust/v2rayNG/releases/download/2.2.6/v2rayNG_2.2.6_arm64-v8a.apk"><img src="https://img.shields.io/badge/Download-v2rayNG.apk-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Download v2rayNG"></a> |
 
@@ -32,65 +32,65 @@
 
 ---
 
-## 📋 المحتويات
+## 📋 Contents
 
-- [الخطوة 1 — إنشاء السيرفر](#1--إنشاء-السيرفر-مرة-واحدة-فقط)
-- [الخطوة 2 — تشغيل على ويندوز](#2--التشغيل-على-ويندوز)
-- [الخطوة 3 — تشغيل على أندرويد](#3--التشغيل-على-أندرويد)
-- [دعم المشروع](#-دعم-المشروع)
-
----
-
-## 1️⃣ إنشاء السيرفر (مرة واحدة فقط)
-
-> يتم هذا الإعداد مرة واحدة فقط، ثم تستخدمه دائمًا.
-
-| الخطوة | الشرح |
-|:---:|---|
-| **1** | افتح المستودع [`X5Coder/IPNET`](https://github.com/X5Coder/IPNET) ثم اضغط **Use this template** لإنشاء نسخة خاصة بك (لازم تكون **Public**). |
-| **2** | داخل مستودعك الجديد، افتح تبويب **Actions**، وشغّل الـ workflow باسم **USA Proxy** إن لم يكن يعمل تلقائيًا. |
+- [Step 1 — Create Your Server](#1--create-your-server-one-time-setup)
+- [Step 2 — Run on Windows](#2--run-on-windows)
+- [Step 3 — Run on Android](#3--run-on-android)
+- [Support the Project](#-support-the-project)
 
 ---
 
-## 2️⃣ التشغيل على ويندوز
+## 1️⃣ Create Your Server (one-time setup)
 
-| الخطوة | الشرح |
+> This setup is done once — after that, you're ready to connect anytime.
+
+| Step | What to do |
 |:---:|---|
-| **1** | اضغط زر **Windows IPNET.exe** بالأعلى، ينزل الملف مباشرة، ثم شغّله. |
-| **2** | الصق **رابط مستودعك** داخل البرنامج، ثم اضغط **Start**. سيفتح Chrome بـ IP أمريكي (محمي من تسريب WebRTC و DNS). |
-| **3** | في كل مرة تفتح البرنامج بعدها: الرابط يكون محفوظًا تلقائيًا، فقط اضغط **Start**. |
+| **1** | Open [`X5Coder/IPNET`](https://github.com/X5Coder/IPNET) → click **Use this template** → create your own repo (must be **Public**). |
+| **2** | In your new repo, open the **Actions** tab and run the **USA Proxy** workflow if it isn't already running. |
 
 ---
 
-## 3️⃣ التشغيل على أندرويد
+## 2️⃣ Run on Windows
 
-| الخطوة | الشرح |
+| Step | What to do |
 |:---:|---|
-| **1** | اضغط زر **Android v2rayNG.apk** بالأعلى لتحميل التطبيق، ثم ثبّته. |
-| **2** | من القائمة أعلى اليسار اختر **Subscription group setting** ← اضغط **+** واملأ الحقول كالتالي: |
+| **1** | Click **Windows IPNET.exe** above — it downloads directly. Run it. |
+| **2** | Paste **your repo link** into the app → click **Start**. Chrome opens with a US IP (WebRTC + DNS leak-protected). |
+| **3** | Every time after: your link is saved automatically — just click **Start**. |
 
-**بيانات الاشتراك:**
+---
 
-| الحقل | القيمة |
+## 3️⃣ Run on Android
+
+| Step | What to do |
+|:---:|---|
+| **1** | Click **Android v2rayNG.apk** above to download, then install it. |
+| **2** | Open the top-left menu → **Subscription group setting** → tap **+** and fill in the fields below. |
+
+**Subscription fields:**
+
+| Field | Value |
 |---|---|
 | `remarks` | `IPNET` |
-| `Optional URL` | رابط الاشتراك الخاص بك، مثال: `https://raw.githubusercontent.com/YOU/YOUR-REPO/main/sub.txt`<br>*(استبدل `YOU/YOUR-REPO` باسم مستودعك)* |
-| `Enable update` | ✅ تفعيل |
-| `Enable automatic update` | ✅ تفعيل — الفاصل الزمني `60` |
+| `Optional URL` | Your subscription link, e.g. `https://raw.githubusercontent.com/YOU/YOUR-REPO/main/sub.txt`<br>*(replace `YOU/YOUR-REPO` with your own repo)* |
+| `Enable update` | ✅ ON |
+| `Enable automatic update` | ✅ ON — interval `60` |
 
-ثم اضغط **✓** للحفظ.
+Then tap **✓** to save.
 
-| الخطوة | الشرح |
+| Step | What to do |
 |:---:|---|
-| **3** | من الشاشة الرئيسية اضغط **⋮** ← **Update subscription** ← اضغط على `IPNET-USA` ← اضغط **▶** ← اسمح بصلاحية VPN. |
-| **4** | تحقق من عمل الاتصال عبر [ipleak.net](https://ipleak.net/) — يجب أن يظهر أنك في **United States**. |
-| **5** | لو توقف الاتصال لاحقًا: أعد تشغيل الخدمة من الإشعار، ثم **⋮** ← **Update subscription** ← اتصل من جديد. |
+| **3** | On the main screen tap **⋮** → **Update subscription** → tap `IPNET-USA` → tap **▶** → allow the VPN permission. |
+| **4** | Verify it worked at [ipleak.net](https://ipleak.net/) — it should show **United States**. |
+| **5** | If it stops working later: restart the service from the notification, then **⋮** → **Update subscription** → reconnect. |
 
 ---
 
-## ⭐ دعم المشروع
+## ⭐ Support the Project
 
-إذا كان IPNET مفيدًا لك، ادعمنا بنجمة على المستودع — تستغرق 5 ثوانٍ فقط وتساعد على استمرار المشروع 🙏
+If IPNET is useful to you, please **star the repo** — it takes 5 seconds and helps keep the project alive 🙏
 
 <div align="center">
 
