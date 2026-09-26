@@ -17,7 +17,6 @@ workflow starts by itself and keeps itself alive.
 Windows: config at %APPDATA%/IPNET/config.json (chosen at setup).
 Needs on PC: internet + Chrome.
 """
-import base64
 import json
 import os
 import re
@@ -26,14 +25,12 @@ import subprocess
 import sys
 import time
 import urllib.request
-import urllib.error
 import zipfile
 
 APP_NAME = "IPNET"
 APP_VERSION = "v1.3.0"
 TEMPLATE_URL = "https://github.com/X5Coder/proxy-usa"
 APP_AUTHOR = "X5Coder"
-API = "https://api.github.com"
 RAW = "https://raw.githubusercontent.com"
 SB_VERSION = "1.14.2"
 SS_METHOD = "aes-256-gcm"
@@ -133,18 +130,6 @@ def resource_path(name):
     return ""
 
 
-def bin_dir():
-    d = os.path.join(app_dir(), "bin")
-    os.makedirs(d, exist_ok=True)
-    return d
-
-
-def profile_dir():
-    d = os.path.join(app_dir(), "chrome-usa")
-    os.makedirs(d, exist_ok=True)
-    return d
-
-
 def load_config():
     try:
         with open(config_path(), "r", encoding="utf-8") as f:
@@ -159,33 +144,6 @@ def load_config():
 def save_config(cfg):
     with open(config_path(), "w", encoding="utf-8") as f:
         json.dump(cfg, f, indent=2)
-
-
-def api_token(cfg):
-    """Kept for compatibility (public-only builds carry no token)."""
-    return cfg.get("token") or ""
-
-
-def api_req(method, url, token, payload=None):
-    data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(url, data=data, method=method)
-    req.add_header("Accept", "application/vnd.github+json")
-    req.add_header("Authorization", f"Bearer {token}")
-    req.add_header("X-GitHub-Api-Version", "2022-11-28")
-    if data:
-        req.add_header("Content-Type", "application/json")
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            body = r.read().decode("utf-8", "ignore")
-            return r.status, json.loads(body) if body else {}
-    except urllib.error.HTTPError as e:
-        try:
-            detail = e.read().decode("utf-8", "ignore")[:300]
-        except Exception:
-            detail = ""
-        return e.code, {"error": detail}
-    except Exception as e:
-        return 0, {"error": str(e)[:300]}
 
 
 def raw_get(url, timeout=20):
@@ -290,9 +248,22 @@ def setup_attach(repo_text, log):
     save_config(cfg)
     if snap["endpoint"]:
         log(f"Attached! Live endpoint: {snap['endpoint']}")
-    else:
-        log("Attached! First run still building - open the repo Actions tab, "
-            "run USA Proxy once, and the app picks it up automatically.")
+        return cfg
+    # First build still running: WAIT here (up to ~12 min) with live
+    # progress, so the window only closes into run mode (and Chrome)
+    # when there is something to connect to.
+    log("Server is building for the first time - waiting for it ...")
+    started = time.time()
+    for _i in range(48):
+        time.sleep(15)
+        v = raw_get(f"{RAW}/{owner}/{repo}/main/ss_url.txt")
+        if v and re.match(r"bore\.pub:\d+", v):
+            log(f"Ready! Endpoint: {v}")
+            return cfg
+        mins = int((time.time() - started) // 60) + 1
+        log(f"... still building (~{mins} min elapsed, "
+            f"see https://github.com/{owner}/{repo}/actions)")
+    log("Still building - the app will pick it up automatically.")
     return cfg
 
 
@@ -506,47 +477,6 @@ def gui_setup(error_msg=""):
 
     def hairline():
         tk.Frame(wrap, bg=HAIR, height=1).pack(fill="x", pady=10)
-
-    def field(text, mono=False):
-        e = tk.Entry(wrap, bg=FIELD, fg=INK, relief="solid", borderwidth=1,
-                     highlightthickness=1, highlightcolor=INK,
-                     highlightbackground=HAIR,
-                     font=("Consolas", 9) if mono else ("Segoe UI", 10),
-                     insertbackground=INK)
-        e.insert(0, text)
-        e.config(state="readonly")
-        e.pack(fill="x", pady=3)
-        make_copyable(e)
-        return e
-
-    def make_copyable(widget):
-        """Guaranteed copy: Ctrl+C / Ctrl+Insert / right-click menu + toast."""
-        def do_copy(_evt=None):
-            try:
-                sel = widget.selection_get()
-            except Exception:
-                try:
-                    sel = widget.get()
-                except Exception:
-                    return "break"
-            copy_text(sel, "Copied!")
-            return "break"
-
-        widget.bind("<Control-c>", do_copy)
-        widget.bind("<Control-C>", do_copy)
-        widget.bind("<Control-Insert>", do_copy)
-        menu = tk.Menu(widget, tearoff=0)
-        menu.add_command(label="Copy",
-                         command=lambda: (do_copy(), menu.unpost()))
-
-        def popup(evt):
-            try:
-                widget.focus_set()
-                menu.tk_popup(evt.x_root, evt.y_root)
-            finally:
-                menu.grab_release()
-
-        widget.bind("<Button-3>", popup)
 
     tk.Label(wrap, text="USA proxy in one click.", bg=PAPER, fg=MUTED,
              font=("Segoe UI", 11)).pack(anchor="w", pady=(0, 14))
@@ -766,17 +696,6 @@ def free_local_port():
     time.sleep(2)
 
 
-def endpoint_reachable(endpoint, timeout=10):
-    import socket
-    try:
-        host, _, port = endpoint.partition(":")
-        s = socket.create_connection((host.strip(), int(port)), timeout=timeout)
-        s.close()
-        return True
-    except Exception:
-        return False
-
-
 def proxy_working(timeout=12):
     """True only if traffic REALLY flows end-to-end: SOCKS5 handshake on
     127.0.0.1:1080 + a CONNECT request through the Shadowsocks server.
@@ -878,15 +797,6 @@ def run_terminal(cfg):
             slog("Old tunnel log cleared (>2MB).", flush=True)
     except Exception:
         pass
-    # repo sanity check (only when a token was given, e.g. private repo)
-    token = api_token(cfg)
-    if token:
-        code, _ = api_req("GET", f"{API}/repos/{cfg['owner']}/{cfg['repo']}",
-                          token)
-        if code == 404:
-            raise RuntimeError("Repo not found (renamed/deleted/private without token?).")
-        if code == 401:
-            raise RuntimeError("Token rejected (401) - paste a fresh one.")
     proc = None
     tun_log = None
     current = ""
@@ -906,8 +816,8 @@ def run_terminal(cfg):
             name, endpoint = fetch_endpoint(cfg)
             if not endpoint:
                 fails += 1
-                slog(f"Endpoint not published yet ({fails}). "
-                      f"Check https://github.com/{cfg['owner']}/{cfg['repo']}/actions",
+                slog(f"Endpoint not published yet ({fails}) - next check in ~1 min. "
+                      f"Follow https://github.com/{cfg['owner']}/{cfg['repo']}/actions",
                       flush=True)
                 if fails >= 10:
                     raise RuntimeError("No endpoint published. Re-enter the repo URL.")

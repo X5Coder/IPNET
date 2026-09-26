@@ -11,7 +11,6 @@ on:
     paths:
       - "server.py"
       - "singbox-server.json"
-      - "ss-client-template.json"
       - ".github/workflows/proxy.yml"
 
 permissions:
