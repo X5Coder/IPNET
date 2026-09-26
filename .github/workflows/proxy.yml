@@ -79,6 +79,21 @@ jobs:
 
       - name: Start bore tunnels (http-proxy 8080 + shadowsocks 8388)
         run: |
+          make_sub() {
+            # Fixed URLs, evergreen content: android-ss.txt (plain ss:// link)
+            # and sub.txt (base64 subscription for v2rayNG/NekoBox auto-update).
+            # The URLs never change; only the content tracks the live endpoint.
+            SS_URL="$(cat ss_url.txt 2>/dev/null | tr -d ' \r\n')"
+            [ -z "$SS_URL" ] && return 0
+            SS_HOST="${SS_URL%%:*}"; SS_PORT="${SS_URL##*:}"
+            PASS="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0]['password'])")"
+            METHOD="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0].get('method','aes-256-gcm'))")"
+            [ -z "$PASS" ] && return 0
+            USERINFO="$(printf '%s' "$METHOD:$PASS" | base64 -w0 | tr '+/' '-_' | tr -d '=')"
+            LINK="ss://${USERINFO}@${SS_HOST}:${SS_PORT}#IPNET-USA"
+            printf '%s' "$LINK" > android-ss.txt
+            printf '%s' "$LINK" | base64 -w0 > sub.txt
+          }
           echo "Starting bore tunnels ..."
           rm -f /tmp/bore.log /tmp/bore-ss.log
           /tmp/bore local 8080 --to bore.pub > /tmp/bore.log 2>&1 &
@@ -99,10 +114,11 @@ jobs:
             echo "SHADOWSOCKS=$SS_URL (aes-256-gcm, pass X5_Secure_2026!Strong - full https)"
           } | tee /tmp/urls.txt
           cat /tmp/urls.txt > proxy_urls.txt
+          make_sub
           git config user.name "proxy-bot"
           git config user.email "bot@proxy.usa"
           git pull --rebase || true
-          git add bore_url.txt ss_url.txt proxy_urls.txt || true
+          git add bore_url.txt ss_url.txt proxy_urls.txt android-ss.txt sub.txt || true
           git commit -m "update bore $URL ss $SS_URL" || true
           git push || true
           echo "### HTTP_PROXY: $URL" >> $GITHUB_STEP_SUMMARY
@@ -137,11 +153,24 @@ jobs:
 
       - name: Keep alive
         run: |
+          make_sub() {
+            SS_URL="$(cat ss_url.txt 2>/dev/null | tr -d ' \r\n')"
+            [ -z "$SS_URL" ] && return 0
+            SS_HOST="${SS_URL%%:*}"; SS_PORT="${SS_URL##*:}"
+            PASS="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0]['password'])")"
+            METHOD="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0].get('method','aes-256-gcm'))")"
+            [ -z "$PASS" ] && return 0
+            USERINFO="$(printf '%s' "$METHOD:$PASS" | base64 -w0 | tr '+/' '-_' | tr -d '=')"
+            LINK="ss://${USERINFO}@${SS_HOST}:${SS_PORT}#IPNET-USA"
+            printf '%s' "$LINK" > android-ss.txt
+            printf '%s' "$LINK" | base64 -w0 > sub.txt
+          }
           push_urls() {
+            make_sub
             git config user.name "proxy-bot" || true
             git config user.email "bot@proxy.usa" || true
             git pull --rebase || true
-            git add bore_url.txt ss_url.txt proxy_urls.txt || true
+            git add bore_url.txt ss_url.txt proxy_urls.txt android-ss.txt sub.txt || true
             git commit -m "update bore $1 ss $2 (auto-heal)" || true
             git push || true
           }
