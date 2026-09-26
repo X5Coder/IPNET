@@ -32,9 +32,8 @@ Developer: **X5Coder** — Original repo: `https://github.com/X5Coder/proxy-usa`
 3. Back on the main screen → **⋮** menu → **Update subscription** → server `IPNET-USA` appears.
 4. Tap the server to select it → press **▶** (bottom right) → allow VPN.
 5. Open `ipinfo.io` → United States.
-6. No internet despite connected? Settings → find **Remote DNS** → set
-   `https://1.1.1.1/dns-query` → reconnect. Later disconnects? **⋮** →
-   **Update subscription** → connect again (5 seconds).
+6. Not working? Restart the service from the notification (or stop/start in
+   the app), then ⋮ → **Update subscription** → connect again.
 
 ## How it works
 
