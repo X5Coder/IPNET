@@ -71,10 +71,15 @@ jobs:
           ss -tlnp | grep -E "8388|8080" || netstat -tlnp | grep -E "8388|8080" || true
           # HARD GATE: the mesh leg is IPv6 - an IPv4-only listen (0.0.0.0)
           # silently kills 100% of ygg traffic. Refuse to continue blind.
-          if (ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | grep -q ":::8388"; then
-            echo "ss dual-stack listen OK (:::8388 serves bore + mesh)"
+          # NOTE: trust sing-box's own log here, not `ss` text format:
+          # this runner's iproute2 renders the IPv6 wildcard [::]:8388 as
+          # `*:8388`, so grepping `ss` output for `:::8388` is a false
+          # negative (observed: log says `[::]:8388` while `ss` prints `*`).
+          if grep -q "tcp server started at \[::\]:8388" /tmp/ss.log; then
+            echo "ss dual-stack listen OK ([::]:8388 serves bore + mesh)"
           else
-            echo "FATAL: ss is NOT listening on :::8388 (dual-stack broken) - ygg leg would be dead"
+            echo "FATAL: ss did NOT bind [::]:8388 (dual-stack broken) - ygg leg would be dead"
+            cat /tmp/ss.log || true
             ss -tln || netstat -tln || true
             exit 1
           fi
@@ -84,7 +89,7 @@ jobs:
           # Second public leg next to bore: our own mesh node with a fixed
           # IPv6 for the whole run (key kept in ./ygg-node, reused on
           # restarts so the IP never changes mid-run). The same ss server
-          # on 0.0.0.0:8388 answers both bore and mesh - one secret, two
+          # on [::]:8388 answers both bore and mesh - one secret, two
           # doors. Clients prefer ygg (stable), bore stays as fallback.
           echo "Installing yggdrasil ..."
           YGG_VER="0.5.14"
