@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.5.0"
+APP_VERSION = "v1.5.1"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -842,6 +842,26 @@ def ensure_yggdrasil():
     return ""
 
 
+def ygg_exit_hint():
+    """Read ygg/ygg.log tail and translate a dead node into an actionable
+    hint. Returns hint string (may be '')."""
+    try:
+        with open(os.path.join(ygg_dir(), "ygg.log"), "r", encoding="utf-8",
+                  errors="ignore") as f:
+            tail = f.read()[-3000:].lower()
+        if "access is denied" in tail:
+            return ("TUN blocked: Windows needs admin for the mesh interface. "
+                    "Right-click IPNET.exe -> 'Run as administrator' and retry. "
+                    "(One UAC click; bore keeps working meanwhile.)")
+        if "panic" in tail or "fatal" in tail:
+            last = [l for l in tail.splitlines()
+                    if "panic" in l or "fatal" in l][-1].strip()[:160]
+            return f"node error: {last}"
+    except Exception:
+        pass
+    return ""
+
+
 def start_ygg_node(exe):
     """Start our mesh node (stable identity kept in ygg.conf). Returns proc
     or None. No TUN needed for the daemon itself; packet flow needs the
@@ -887,7 +907,9 @@ def start_ygg_node(exe):
             creationflags=0x08000000 if os.name == "nt" else 0)
         time.sleep(6)
         if _ygg_proc.poll() is not None:
-            slog("[ygg] node exited at once - see ygg/ygg.log. bore continues.",
+            hint = ygg_exit_hint()
+            slog("[ygg] node exited at once - see ygg/ygg.log. "
+                 + (hint + " " if hint else "") + "bore continues.",
                  flush=True)
             _ygg_proc = None
             return None
