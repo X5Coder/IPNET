@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.5.6"
+APP_VERSION = "v1.5.7"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -1126,7 +1126,7 @@ def split_endpoint(ep):
         return "", 0
 
 
-def ygg_mesh_reachable(host, port, timeout=8):
+def ygg_mesh_reachable(host, port, timeout=12):
     """Raw TCP to [mesh-ip]:port through the local ygg TUN.
 
     Cheap pre-gate before touching the live tunnel: proves L3 mesh
@@ -1639,10 +1639,14 @@ def run_terminal(cfg):
             # Adopt the freshest known values silently for the IDLE leg, so
             # failover always jumps to something current (and the [net] log
             # above fires once per real change instead of every loop).
-            if bore_ep:
-                cur["bore"] = bore_ep
-            if ygg_ep:
-                cur["ygg"] = ygg_ep
+            # Gated on proc: before the first tunnel exists cur must stay
+            # empty, otherwise the initial switch is suppressed (want ==
+            # cur) and the healing check fires against an empty port.
+            if proc is not None:
+                if bore_ep:
+                    cur["bore"] = bore_ep
+                if ygg_ep:
+                    cur["ygg"] = ygg_ep
             if ygg_ep and (ygg_proven or transport == "ygg"):
                 desired = "ygg"
             elif ygg_ep and transport == "bore" and not ygg_proven \
@@ -1656,7 +1660,27 @@ def run_terminal(cfg):
                 if _yh and _yp:
                     _rok, _rwhy = ygg_mesh_reachable(_yh, _yp)
                     if not _rok:
-                        if time.time() - _ygg_last_reach_log > 300:
+                        # Mesh TCP timeout has TWO very different causes:
+                        # (a) route not converged yet -> retry later, or
+                        # (b) the file points at a DEAD server generation
+                        # (stale CDN / handover race) -> no amount of
+                        # waiting helps. Distinguish via SHA-pin (throttled
+                        # ~90s, immutable raw URL bypasses the branch cache):
+                        # a different pinned endpoint means (b).
+                        _pn2, _pe2 = fetch_pinned_ygg(cfg)
+                        if _pe2 and _pe2 != ygg_ep:
+                            slog(f"[ygg-probe] endpoint STALE (file: {ygg_ep} "
+                                 f"-> live: {_pe2}) - adopting live value.",
+                                 flush=True)
+                            cur["ygg"] = _pe2
+                            ygg_ep = _pe2
+                            _yh, _yp = split_endpoint(ygg_ep)
+                            if _yh and _yp:
+                                _rok, _rwhy = ygg_mesh_reachable(_yh, _yp)
+                                slog(f"[ygg-probe] live endpoint mesh TCP: "
+                                     f"{'open' if _rok else 'FAIL (' + _rwhy + ')'}.",
+                                     flush=True)
+                        if not _rok and time.time() - _ygg_last_reach_log > 300:
                             _ygg_last_reach_log = time.time()
                             slog(f"[ygg-probe] mesh TCP {ygg_ep}: FAIL "
                                  f"({_rwhy}) - bore serves, retry later.",
