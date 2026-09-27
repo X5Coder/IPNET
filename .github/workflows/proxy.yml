@@ -143,7 +143,7 @@ jobs:
           CF_HOST="$(cat cf_vmess.txt 2>/dev/null | tr -d ' \r\n')"
           [ -z "$CF_HOST" ] && { echo "FATAL: no tunnel hostname"; exit 1; }
           UUID="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0]['users'][0]['uuid'])")"
-          printf '{"log":{"level":"info"},"inbounds":[{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":1082}],"outbounds":[{"type":"vmess","tag":"out","server":"%s","server_port":443,"uuid":"%s","alterId":0,"tls":{"enabled":true,"server_name":"%s"},"transport":{"type":"ws","path":"/ipnet","headers":{"Host":"%s"}}}]}' "$CF_HOST" "$UUID" "$CF_HOST" "$CF_HOST" > /tmp/sb-cf.json
+          printf '{"log":{"level":"info"},"inbounds":[{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":1082}],"outbounds":[{"type":"vmess","tag":"out","server":"%s","server_port":443,"uuid":"%s","alter_id":0,"tls":{"enabled":true,"server_name":"%s"},"transport":{"type":"ws","path":"/ipnet","headers":{"Host":"%s"}}}]}' "$CF_HOST" "$UUID" "$CF_HOST" "$CF_HOST" > /tmp/sb-cf.json
           /tmp/sing-box run -c /tmp/sb-cf.json > /tmp/sb-cf.log 2>&1 &
           sleep 3
           echo "--- vmess: http via socks-1082 ---"
@@ -188,7 +188,7 @@ jobs:
           start_monitor() {
             _h="$1"
             UUID="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0]['users'][0]['uuid'])")"
-            printf '{"log":{"level":"error"},"inbounds":[{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":1081}],"outbounds":[{"type":"vmess","tag":"out","server":"%s","server_port":443,"uuid":"%s","alterId":0,"tls":{"enabled":true,"server_name":"%s"},"transport":{"type":"ws","path":"/ipnet","headers":{"Host":"%s"}}}]}' "$_h" "$UUID" "$_h" "$_h" > /tmp/sb-monitor.json
+            printf '{"log":{"level":"error"},"inbounds":[{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":1081}],"outbounds":[{"type":"vmess","tag":"out","server":"%s","server_port":443,"uuid":"%s","alter_id":0,"tls":{"enabled":true,"server_name":"%s"},"transport":{"type":"ws","path":"/ipnet","headers":{"Host":"%s"}}}]}' "$_h" "$UUID" "$_h" "$_h" > /tmp/sb-monitor.json
             pkill -f sb-monitor.json 2>/dev/null || true
             sleep 1
             /tmp/sing-box run -c /tmp/sb-monitor.json > /tmp/sb-monitor.log 2>&1 &

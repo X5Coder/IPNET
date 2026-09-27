@@ -956,7 +956,7 @@ def build_client_cfg(host, uuid):
                       "listen_port": LOCAL_SOCKS_PORT}],
         "outbounds": [{"type": "vmess", "tag": "out",
                        "server": host, "server_port": 443,
-                       "uuid": uuid, "alterId": 0,
+                       "uuid": uuid, "alter_id": 0,
                        "tls": {"enabled": True, "server_name": host},
                        "transport": {"type": "ws", "path": "/ipnet",
                                      "headers": {"Host": host}}}],
