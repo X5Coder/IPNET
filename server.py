@@ -106,10 +106,10 @@ def set_fast(sock):
         pass
 
 def relay_select(client, remote):
-    """Single-thread select-based relay - stable over high-latency tunnels (bore).
+    """Single-thread select-based relay - stable over high-latency tunnels (tunnel).
 
     Why: the old 2-thread relay with join() hangs when one direction stays
-    idle-open (TLS keep-alive) while bore buffers the other direction.
+    idle-open (TLS keep-alive) while tunnel buffers the other direction.
     select() forwards whichever side has data and closes on clean EOF.
     """
     set_fast(client)
@@ -155,7 +155,7 @@ def relay_select(client, remote):
                 return
 
 def relay(src, dst):
-    """Blocking bidirectional relay via select - stable for TLS/CONNECT over bore."""
+    """Blocking bidirectional relay via select - stable for TLS/CONNECT over tunnel."""
     relay_select(src, dst)
 
 def handle_client(client, addr):
@@ -288,7 +288,7 @@ def handle_client(client, addr):
                     pass
                 return
             log(f"CONNECT {host}:{port} relay open")
-            # Relay - raw TCP tunnel for HTTPS (select-based, bore-safe)
+            # Relay - raw TCP tunnel for HTTPS (select-based, tunnel-safe)
             relay(client, remote)
             log(f"CONNECT {host}:{port} relay closed")
             try:

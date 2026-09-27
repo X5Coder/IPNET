@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.5.12"
+APP_VERSION = "v1.6.0"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -99,7 +99,7 @@ def try_elevate(reason):
         slog(f"[admin] elevation failed: {e} - continuing unelevated.",
              flush=True)
     return False
-# Yggdrasil (second transport, preferred when usable; bore stays fallback).
+# Yggdrasil mesh transport (the ONLY transport).
 YGG_VERSION = "0.5.14"
 YGG_MSI_URL = ("https://github.com/yggdrasil-network/yggdrasil-go/releases/"
                "download/v0.5.14/yggdrasil-0.5.14-x64.msi")
@@ -290,17 +290,19 @@ def extract_password_from_repo_text(singbox_text="", workflow_text="", server_te
     return "", method
 
 
+def _valid_ygg_endpoint(v):
+    """'[ipv6]:port' -> 'ipv6:port' or ''."""
+    m = re.match(r"^\[([0-9a-fA-F:]+)\]:(\d{1,5})$", (v or "").strip())
+    return f"{m.group(1)}:{m.group(2)}" if m else ""
+
+
 def fetch_public_repo_snapshot(owner, repo):
     """Read-only check of a PUBLIC repo (no login). Returns
-    {endpoint, endpoint_file, password, method, has_code}."""
+    {endpoint, endpoint_file, password, method, has_code}.
+    Mesh-only: the endpoint comes from ss_ygg_url.txt."""
     base = f"{RAW}/{owner}/{repo}/main"
-    ss_endpoint = raw_get(f"{base}/ss_url.txt", bust=True)
-    bore_endpoint = raw_get(f"{base}/bore_url.txt", bust=True)
-    endpoint, endpoint_file = "", ""
-    if ss_endpoint and re.match(r"bore\.pub:\d+", ss_endpoint):
-        endpoint, endpoint_file = ss_endpoint, "ss_url.txt"
-    elif bore_endpoint and re.match(r"bore\.pub:\d+", bore_endpoint):
-        endpoint, endpoint_file = bore_endpoint, "bore_url.txt"
+    endpoint = _valid_ygg_endpoint(raw_get(f"{base}/ss_ygg_url.txt", bust=True))
+    endpoint_file = "ss_ygg_url.txt" if endpoint else ""
     singbox_text = raw_get(f"{base}/singbox-server.json", bust=True)
     workflow_text = raw_get(f"{base}/.github/workflows/proxy.yml", bust=True)
     has_code = bool(singbox_text or workflow_text)
@@ -344,9 +346,10 @@ def setup_attach(repo_text, log):
     started = time.time()
     for _i in range(48):
         time.sleep(15)
-        v = raw_get(f"{RAW}/{owner}/{repo}/main/ss_url.txt", bust=True)
-        if v and re.match(r"bore\.pub:\d+", v):
-            log(f"Ready! Endpoint: {v}")
+        v = _valid_ygg_endpoint(
+            raw_get(f"{RAW}/{owner}/{repo}/main/ss_ygg_url.txt", bust=True))
+        if v:
+            log(f"Ready! Mesh endpoint: {v}")
             return cfg
         mins = int((time.time() - started) // 60) + 1
         log(f"... still building (~{mins} min elapsed, "
@@ -780,53 +783,19 @@ def _api_latest_sha(owner, repo, path="ss_url.txt"):
     return ""
 
 
-def _valid_ep(kind, v):
-    v = (v or "").strip()
-    if kind == "bore":
-        return v if v and re.match(r"bore\.pub:\d+$", v) else ""
-    m = re.match(r"^\[([0-9a-fA-F:]+)\]:(\d{1,5})$", v)
-    return f"{m.group(1)}:{m.group(2)}" if m else ""
-
-
-def fetch_pinned(cfg, path, kind):
-    """Fresh endpoint via SHA-pinned raw URL (bypasses branch cache).
-    kind: 'bore' (ss_url.txt/bore_url.txt) or 'ygg' (ss_ygg_url.txt).
-    Returns (name, endpoint) or ('','')."""
+def fetch_pinned_ygg(cfg):
+    """Fresh mesh endpoint via SHA-pinned raw URL (bypasses the ~5min
+    branch CDN cache). Returns ('ss_ygg_url.txt', 'ipv6:port') or ('','').
+    Throttled to ~90s per path (unauthenticated API limit)."""
     global _last_seen_sha
+    path = "ss_ygg_url.txt"
     sha = _api_latest_sha(cfg["owner"], cfg["repo"], path)
     if not sha or sha == _last_seen_sha.get(path, ""):
         return "", ""
-    names = ("ss_url.txt", "bore_url.txt") if kind == "bore" \
-        else ("ss_ygg_url.txt",)
-    for name in names:
-        v = _valid_ep(kind, raw_get(
-            f"{RAW}/{cfg['owner']}/{cfg['repo']}/{sha}/{name}", timeout=15))
-        if v:
-            _last_seen_sha[path] = sha
-            return name, v
-    _last_seen_sha[path] = sha  # seen but no endpoint; don't refetch
-    return "", ""
-
-
-def fetch_pinned_endpoint(cfg):
-    """Back-compat: pinned bore endpoint."""
-    return fetch_pinned(cfg, "ss_url.txt", "bore")
-
-
-def fetch_pinned_ygg(cfg):
-    """Pinned ygg endpoint."""
-    return fetch_pinned(cfg, "ss_ygg_url.txt", "ygg")
-
-
-def fetch_endpoint(cfg):
-    # Public raw files with cache-buster: ss_url.txt preferred,
-    # bore_url.txt fallback. (Full freshness via fetch_pinned_endpoint.)
-    for name in ("ss_url.txt", "bore_url.txt"):
-        v = raw_get(f"{RAW}/{cfg['owner']}/{cfg['repo']}/main/{name}",
-                    bust=True)
-        if v and re.match(r"bore\.pub:\d+", v):
-            return name, v
-    return "", ""
+    v = _valid_ygg_endpoint(raw_get(
+        f"{RAW}/{cfg['owner']}/{cfg['repo']}/{sha}/{path}", timeout=15))
+    _last_seen_sha[path] = sha
+    return (path, v) if v else ("", "")
 
 
 def free_local_port():
@@ -888,7 +857,7 @@ def stop_tunnel(proc, lf):
         pass
 
 
-# ---------------- Yggdrasil second transport (preferred, bore fallback) ---
+# ---------------- Yggdrasil mesh transport (single leg) ---
 _ygg_proc = None
 
 
@@ -900,9 +869,10 @@ def ygg_dir():
 
 def ensure_yggdrasil():
     """Download + extract the Windows yggdrasil binary once (like sing-box).
-    Returns yggdrasil.exe path or '' (then bore simply continues)."""
+    Returns yggdrasil.exe path or '' (caller must fail loudly - there is
+    no fallback transport)."""
     if os.name != "nt":
-        slog("[ygg] auto-setup is Windows-only here - bore continues. "
+        slog("[ygg] auto-setup is Windows-only here. "
              "(Linux: apt install yggdrasil, then restart.)", flush=True)
         return ""
     d = os.path.join(ygg_dir(), "v" + YGG_VERSION)
@@ -926,8 +896,8 @@ def ensure_yggdrasil():
             slog("[ygg] binary ready.", flush=True)
             return exe
     except Exception as e:
-        slog(f"[ygg] setup failed: {e} - bore continues.", flush=True)
-    slog("[ygg] setup failed - bore continues.", flush=True)
+        slog(f"[ygg] setup failed: {e}", flush=True)
+    slog("[ygg] setup failed.", flush=True)
     return ""
 
 
@@ -941,7 +911,7 @@ def ygg_exit_hint():
         if "access is denied" in tail:
             return ("TUN blocked: Windows needs admin for the mesh interface. "
                     "Right-click IPNET.exe -> 'Run as administrator' and retry. "
-                    "(One UAC click; bore keeps working meanwhile.)")
+                    "(One UAC click.)")
         if "panic" in tail or "fatal" in tail:
             last = [l for l in tail.splitlines()
                     if "panic" in l or "fatal" in l][-1].strip()[:160]
@@ -1160,15 +1130,14 @@ def start_ygg_node(exe):
         if _ygg_proc.poll() is not None:
             hint = ygg_exit_hint()
             slog("[ygg] node exited at once - see ygg/ygg.log. "
-                 + (hint + " " if hint else "") + "bore continues.",
-                 flush=True)
+                 + (hint + " " if hint else ""), flush=True)
             _ygg_proc = None
             return None
         ip = ygg_node_ip(exe)
         slog(f"[ygg] node up. our mesh ip: {ip or 'unknown yet'}", flush=True)
         return _ygg_proc
     except Exception as e:
-        slog(f"[ygg] node start failed: {e} - bore continues.", flush=True)
+        slog(f"[ygg] node start failed: {e}", flush=True)
         return None
 
 
@@ -1228,9 +1197,7 @@ def fetch_ygg_endpoint(cfg):
 
 
 def split_endpoint(ep):
-    """'bore.pub:123' or '200:...:8388' -> (host, port).
-
-    Accepts '[ipv6]:port' and bare 'ipv6:port' (last colon = port)."""
+    """'[ipv6]:port' or bare 'ipv6:port' -> (host, port)."""
     s = (ep or "").strip()
     m = re.match(r"^\[([0-9a-fA-F:]+)\]:(\d{1,5})$", s)
     if m:
@@ -1262,62 +1229,6 @@ def ygg_mesh_reachable(host, port, timeout=12):
         try:
             if s:
                 s.close()
-        except Exception:
-            pass
-
-
-def probe_ygg_leg(exe, host, port, method, password, timeout=12):
-    """End-to-end Shadowsocks-over-mesh test on a THROWAWAY local port.
-
-    The live tunnel on 1080 (bore) is never touched: a temp sing-box
-    on 127.0.0.1:1089 dials the mesh endpoint, check_tunnel(1089)
-    proves real traffic, then the probe is killed. Returns (ok, reason).
-    """
-    import socket as _s
-    probe_port = 1089
-    try:
-        _p = _s.socket()
-        _p.bind(("127.0.0.1", probe_port))
-        _p.close()
-    except OSError:
-        probe_port = 18089  # 1089 busy (stale probe) - use spare
-    cfg = {"log": {"level": "error"},
-           "inbounds": [{"type": "mixed", "tag": "probe",
-                         "listen": "127.0.0.1",
-                         "listen_port": probe_port}],
-           "outbounds": [{"type": "shadowsocks", "tag": "out",
-                          "server": host, "server_port": port,
-                          "method": method, "password": password}]}
-    tmp = os.path.join(app_dir(), "sb-ygg-probe.json")
-    proc = None
-    lf = None
-    try:
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(cfg, f)
-        lf = open(os.path.join(app_dir(), "ygg-probe.log"), "a",
-                  encoding="utf-8")
-        proc = subprocess.Popen(
-            [exe, "run", "-c", tmp], stdout=lf, stderr=subprocess.STDOUT,
-            creationflags=0x08000000 if os.name == "nt" else 0)
-        time.sleep(3)
-        if proc.poll() is not None:
-            return False, "probe sing-box died at once"
-        return check_tunnel(probe_port, timeout)
-    except Exception as e:
-        return False, f"probe: {type(e).__name__}"
-    finally:
-        try:
-            if proc and proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=5)
-                except Exception:
-                    proc.kill()
-        except Exception:
-            pass
-        try:
-            if lf:
-                lf.close()
         except Exception:
             pass
 
@@ -1483,8 +1394,7 @@ def seed_chrome_profile(profile):
       real file, ICE gathering yields zero public candidates through
       our SOCKS tunnel (fail-closed, no real-IP srflx).
     - DNS-over-HTTPS "secure" so name resolution stays inside the
-      encrypted stream (bore's TCP-only tunnel cannot carry plain UDP
-      DNS; without DoH it would leak to the local ISP).
+      encrypted stream instead of leaking to the local ISP.
     Existing keys are preserved; call kill_stale_usa_chrome() first so a
     running USA window cannot overwrite the seed on exit.
     Returns True only if a read-back of the REAL file proves the policy.
@@ -1515,9 +1425,8 @@ def seed_chrome_profile(profile):
             web = {}
         web["ip_handling_policy"] = "disable_non_proxied_udp"
         data["webrtc"] = web
-        # DNS-over-HTTPS through the proxy (UDP DNS relay is impossible
-        # over bore's TCP-only tunnel, so plain UDP DNS would leak to the
-        # ISP - DoH keeps name resolution inside the encrypted stream).
+        # DNS-over-HTTPS through the proxy (keeps name resolution inside
+        # the encrypted stream, never leaking to the local ISP).
         doh = data.get("dns_over_https")
         if not isinstance(doh, dict):
             doh = {}
@@ -1592,9 +1501,10 @@ def open_usa_chrome(chrome, url=None):
 
 
 def run_terminal(cfg):
-    """Terminal loop: show proxy address, refresh endpoint, open Chrome.
-    Dual transport: ygg (mesh, stable, preferred) + bore (fallback).
-    Every decision is logged literally ([net]/[ygg]/[bore]/[switch]/[check]).
+    """Terminal loop: single mesh transport (yggdrasil).
+    Show proxy address, refresh the mesh endpoint, open Chrome only on
+    working traffic. Every decision is logged literally
+    ([net]/[ygg]/[switch]/[check]).
     Raises RuntimeError if the repo/endpoint is unusable -> GUI reopens."""
     free_local_port()
     # NOTE: elevation happens in main() BEFORE any window (single UAC at
@@ -1602,13 +1512,16 @@ def run_terminal(cfg):
     # is already elevated (or non-Windows). No second prompt, ever.
     exe = ensure_singbox()
     ygg_exe = ensure_yggdrasil()
-    ygg_node = start_ygg_node(ygg_exe) if ygg_exe else None
+    if not ygg_exe:
+        raise RuntimeError("Yggdrasil unavailable on this machine - mesh is the only transport.")
+    ygg_node = start_ygg_node(ygg_exe)
     if ygg_node:
         up = ygg_peers_up(ygg_exe)
         slog(f"[ygg] mesh peerings up: {up if up >= 0 else 'unknown'} "
              f"(see ygg/ygg.log for detail).", flush=True)
     else:
-        slog("[bore] ygg unavailable - bore only this session.", flush=True)
+        slog("[ygg] node failed to start - will keep retrying it below.",
+             flush=True)
     chrome = find_chrome()
     if not chrome:
         slog("WARNING: Chrome not found. Install Google Chrome first.")
@@ -1622,18 +1535,11 @@ def run_terminal(cfg):
         pass
     proc = None
     tun_log = None
-    transport = "bore"  # active leg; ygg takes over only after it PROVES itself
-    ygg_proven = False  # set True on first end-to-end OK via mesh; reset on fail
-    _ygg_cool_until = 0.0  # next allowed ygg attempt (probe OR failover).
-    # Any ygg failure/skip pushes this +120s: without it the dead-loop
-    # burns 12s (mesh TCP timeout) EVERY 5s iteration and starves bore
-    # healing - the exact deadlock seen in the wild (dead streak 21+).
-    cur = {"bore": "", "ygg": ""}
-    logged = {"bore": "", "ygg": ""}  # last endpoint values already printed
+    cur = ""  # active mesh endpoint ('' = no tunnel yet)
+    logged_ep = ""  # last endpoint value already printed
     skip_logged = ""  # last bad endpoint we warned about (warn once)
     dead = 0
     _ygg_last_try = time.time()  # startup already tried once above
-    _ygg_last_reach_log = 0.0  # throttle mesh-TCP FAIL logs (once/5min)
     client_cfg = os.path.join(app_dir(), "sb-client.json")
     slog("=" * 60)
     slog(f"  {APP_NAME} {APP_VERSION} - USA proxy (leave this window OPEN)")
@@ -1659,23 +1565,21 @@ def run_terminal(cfg):
         else:
             open_usa_chrome(chrome)
 
-    def switch_to(which, ep, why):
-        """Rebuild local sing-box for (which, ep) and restart the tunnel."""
-        nonlocal proc, tun_log, ygg_proven, _ygg_cool_until
+    def switch_to(ep, why):
+        """Rebuild local sing-box for the mesh endpoint and restart."""
+        nonlocal proc, tun_log
         host, port = split_endpoint(ep)
         if not host or not port:
             slog(f"[switch] {why}: BAD endpoint '{ep}' - skipped.", flush=True)
             return False
         # Mesh pre-gate: never tear down a working tunnel for an
         # unroutable ghost IP. Raw TCP via the TUN must open first.
-        if which == "ygg":
-            _ok, _why = ygg_mesh_reachable(host, port)
-            if not _ok:
-                slog(f"[switch] ygg {ep}: skipped ({_why}) - bore untouched.",
-                     flush=True)
-                mark_bad(ep)
-                _ygg_cool_until = time.time() + 120
-                return False
+        _ok, _why = ygg_mesh_reachable(host, port)
+        if not _ok:
+            slog(f"[switch] mesh {ep}: skipped ({_why}) - tunnel untouched.",
+                 flush=True)
+            mark_bad(ep)
+            return False
         ccfg = build_client_cfg(host, port, cfg.get("method", SS_METHOD),
                                 cfg["password"])
         with open(client_cfg, "w", encoding="utf-8") as f:
@@ -1700,269 +1604,123 @@ def run_terminal(cfg):
             return False
         ok, reason = check_tunnel()
         planned = "planned, no downtime" if dead == 0 else "healing"
-        slog(f"[switch] -> {which} {ep} ({why}; {planned}; "
+        slog(f"[switch] -> mesh {ep} ({why}; {planned}; "
               f"check: {'OK' if ok else 'FAIL: ' + reason}).", flush=True)
         if ok:
             _bad_until.pop(ep, None)  # forgiven: it works
-            if which == "ygg":
-                ygg_proven = True
-                slog("[ygg] mesh leg PROVEN - real traffic flows.", flush=True)
+            slog("[ygg] mesh leg live - real traffic flows.", flush=True)
         else:
             mark_bad(ep)  # don't chase it again until cooldown expires
-            if which == "ygg":
-                ygg_proven = False
-                _ygg_cool_until = time.time() + 120
         return ok
 
     try:
         while True:
-            # ---- 1) fresh endpoints, literally logged on change ----
-            name_b, bore_ep = fetch_endpoint(cfg)
-            # Instant path: while the tunnel is down the branch raw URL can
-            # lag ~5 min (CDN cache), so ask the commits API for the fresh
-            # SHA (throttled, ~90s) and jump straight to the new endpoint.
-            if dead and bore_ep == cur["bore"]:
-                _pn, _pe = fetch_pinned_endpoint(cfg)
-                if _pe and _pe != cur["bore"]:
-                    slog(f"[net] bore endpoint via SHA-pin (CDN was stale): {_pe}",
-                         flush=True)
-                    name_b, bore_ep = _pn, _pe
-            if bore_ep != logged["bore"]:
-                logged["bore"] = bore_ep
-                slog(f"[net] bore endpoint: '{cur['bore'] or 'none'}' -> "
-                     f"'{bore_ep or 'none'}' (source: {name_b or 'unpublished'}).",
-                     flush=True)
+            # ---- 1) node watchdog + fresh mesh endpoint ----
             name_y, ygg_ep = ("", "")
             if ygg_node and ygg_node.poll() is None:
                 name_y, ygg_ep = fetch_ygg_endpoint(cfg)
-                # Same CDN staleness applies to the mesh file: pin it while down.
-                if dead and ygg_ep == cur["ygg"]:
+                # Instant path: while the tunnel is down the branch raw URL
+                # can lag ~5 min (CDN cache), so ask the commits API for the
+                # fresh SHA (throttled, ~90s) and jump straight to it.
+                if dead and ygg_ep == cur:
                     _pn, _pe = fetch_pinned_ygg(cfg)
-                    if _pe and _pe != cur["ygg"]:
-                        slog(f"[net] ygg endpoint via SHA-pin (CDN was stale): {_pe}",
+                    if _pe and _pe != cur:
+                        slog(f"[net] mesh endpoint via SHA-pin (CDN was stale): {_pe}",
                              flush=True)
                         name_y, ygg_ep = "ss_ygg_url.txt", _pe
-                if ygg_ep != logged["ygg"]:
-                    logged["ygg"] = ygg_ep
-                    slog(f"[net] ygg endpoint: '{cur['ygg'] or 'none'}' -> "
-                         f"'{ygg_ep or 'none'}'.", flush=True)
-            elif ygg_exe:
+                if ygg_ep != logged_ep:
+                    logged_ep = ygg_ep
+                    slog(f"[net] mesh endpoint: '{cur or 'none'}' -> "
+                         f"'{ygg_ep or 'none'}' (source: {name_y or 'unpublished'}).",
+                         flush=True)
+            else:
                 _now = time.time()
                 if _now - _ygg_last_try > 120:
                     _ygg_last_try = _now
                     slog("[ygg] node process gone - restarting it ...",
                          flush=True)
                     ygg_node = start_ygg_node(ygg_exe)
-                    if not ygg_node:
-                        slog("[ygg] restart failed - bore only for now.",
+                    if ygg_node:
+                        up = ygg_peers_up(ygg_exe)
+                        slog(f"[ygg] node back. mesh ip: "
+                             f"{ygg_node_ip(ygg_exe) or 'unknown yet'} "
+                             f"(peerings up: {up if up >= 0 else 'unknown'}).",
                              flush=True)
-            # ---- 2) desired leg: ygg ONLY after it proves real traffic ----
-            # The old logic ("ygg whenever its file exists") tore down a
-            # working bore tunnel to chase ghost mesh IPs - every failed
-            # attempt = ~4s downtime + flip-flop storms. Now: bore serves
-            # until a background probe on port 1089 proves the mesh leg
-            # end-to-end; only then does ygg become desired.
-            # Adopt the freshest known values silently for the IDLE leg ONLY,
-            # so failover always jumps to something current (and the [net]
-            # log above fires once per real change instead of every loop).
-            # Two gates, both load-bearing:
-            #  - proc exists (before the first tunnel cur must stay empty,
-            #    otherwise the initial switch is suppressed and the healing
-            #    check fires against an empty port);
-            #  - NEVER adopt the ACTIVE leg (adopting cur[bore] while
-            #    serving bore makes want == cur forever, so endpoint
-            #    renewals never switch and the client rots on a dead
-            #    tunnel while fresh endpoints stream by - the exact
-            #    deadlock observed in the wild).
-            if proc is not None:
-                if transport != "bore" and bore_ep:
-                    cur["bore"] = bore_ep
-                if transport != "ygg" and ygg_ep:
-                    cur["ygg"] = ygg_ep
-            if ygg_ep and (ygg_proven or transport == "ygg"):
-                desired = "ygg"
-            elif ygg_ep and transport == "bore" and not ygg_proven \
-                    and not is_bad(ygg_ep) and dead == 0 \
-                    and proc is not None \
-                    and time.time() >= _ygg_cool_until:
-                # Background probe: temp sing-box on 1089, live bore on
-                # 1080 untouched. Throttled by the unified ygg cooldown.
-                _ygg_cool_until = time.time() + 120
-                _yh, _yp = split_endpoint(ygg_ep)
-                if _yh and _yp:
-                    _rok, _rwhy = ygg_mesh_reachable(_yh, _yp)
-                    if not _rok:
-                        # Mesh TCP timeout has TWO very different causes:
-                        # (a) route not converged yet -> retry later, or
-                        # (b) the file points at a DEAD server generation
-                        # (stale CDN / handover race) -> no amount of
-                        # waiting helps. Distinguish via SHA-pin (throttled
-                        # ~90s, immutable raw URL bypasses the branch cache):
-                        # a different pinned endpoint means (b).
-                        _pn2, _pe2 = fetch_pinned_ygg(cfg)
-                        if _pe2 and _pe2 != ygg_ep:
-                            slog(f"[ygg-probe] endpoint STALE (file: {ygg_ep} "
-                                 f"-> live: {_pe2}) - adopting live value.",
-                                 flush=True)
-                            cur["ygg"] = _pe2
-                            ygg_ep = _pe2
-                            _yh, _yp = split_endpoint(ygg_ep)
-                            if _yh and _yp:
-                                _rok, _rwhy = ygg_mesh_reachable(_yh, _yp)
-                                slog(f"[ygg-probe] live endpoint mesh TCP: "
-                                     f"{'open' if _rok else 'FAIL (' + _rwhy + ')'}.",
-                                     flush=True)
-                        if not _rok and time.time() - _ygg_last_reach_log > 300:
-                            _ygg_last_reach_log = time.time()
-                            # Node self-diagnostic on the FAIL line: peers=-1
-                            # means our own node is blind; peers>=1 with no
-                            # route means DHT hasn't converged to the server
-                            # key yet (time), not a dead server.
-                            try:
-                                _up = ygg_peers_up(ygg_exe) if ygg_exe else -1
-                            except Exception:
-                                _up = -1
-                            try:
-                                _me = ygg_node_ip(ygg_exe) if (
-                                    ygg_exe and ygg_node
-                                    and ygg_node.poll() is None) else ""
-                            except Exception:
-                                _me = ""
-                            slog(f"[ygg-probe] mesh TCP {ygg_ep}: FAIL "
-                                 f"({_rwhy}; node peers={_up} "
-                                 f"me={_me or '?'}) - bore serves, retry later.",
-                                 flush=True)
                     else:
-                        slog(f"[ygg-probe] mesh TCP open, testing traffic "
-                             f"via probe (bore untouched) ...", flush=True)
-                        _pok, _pwhy = probe_ygg_leg(
-                            exe, _yh, _yp, cfg.get("method", SS_METHOD),
-                            cfg["password"])
-                        slog(f"[ygg-probe] {'OK - promoting mesh leg' if _pok else 'FAIL: ' + _pwhy + ' - bore serves'}.",
+                        slog("[ygg] restart failed - retrying automatically.",
                              flush=True)
-                        if _pok:
-                            ygg_proven = True
-                            _bad_until.pop(ygg_ep, None)
-                        else:
-                            mark_bad(ygg_ep)
-                # Promote at once when the probe just proved the leg;
-                # otherwise keep serving bore this round.
-                desired = "ygg" if ygg_proven else "bore"
-            elif ygg_ep and transport == "ygg":
-                desired = "ygg"  # already on mesh: stay, healing decides
-            else:
-                desired = "bore" if bore_ep else ("ygg" if ygg_ep else "bore")
-            want = {"bore": bore_ep, "ygg": ygg_ep}[desired]
-            if not want:
+                ygg_ep = ""
+            if not ygg_ep:
                 fails += 1
-                slog(f"[net] no usable endpoint ({fails}) - next check soon. "
-                     f"Follow https://github.com/{cfg['owner']}/{cfg['repo']}/actions",
+                slog(f"[net] no mesh endpoint ({fails}) - node "
+                     f"{'up, waiting for publish' if ygg_node and ygg_node.poll() is None else 'down, restarting'} - "
+                     f"next check soon. Follow https://github.com/{cfg['owner']}/{cfg['repo']}/actions",
                      flush=True)
                 if fails >= 10:
-                    raise RuntimeError("No endpoint published. Re-enter the repo URL.")
+                    raise RuntimeError("No mesh endpoint published. Re-enter the repo URL.")
                 time.sleep(60)
                 continue
             fails = 0
-            # ---- 3) switch when leg or endpoint changed ----
+            # ---- 2) switch when the mesh endpoint changed ----
             # Hysteresis: never jump into an endpoint that failed minutes
-            # ago (two server generations flip-flopping the same file would
-            # otherwise bounce us dead-alive-dead). Adopt silently instead.
-            do_switch = True
-            if (desired != transport or want != cur[transport]) \
-                    and is_bad(want):
-                if want != skip_logged:
-                    skip_logged = want
-                    left = int(_bad_until.get(want, 0) - time.time())
-                    slog(f"[net] {desired} endpoint {want} failed recently - "
-                         f"skipping switch for ~{max(left, 0)}s (staying on "
-                         f"{transport}; will retry automatically).", flush=True)
-                cur[desired] = want  # adopt quietly, log once
-                do_switch = False
-            if do_switch and (desired != transport or want != cur[transport]):
-                if desired != transport:
-                    why = (f"prefer {desired} ("
-                           + ("ygg proven, stable" if desired == "ygg"
-                              else "ygg missing, bore fallback") + ")")
+            # ago. Wait out the cooldown instead (the loop retries
+            # automatically when it expires).
+            if ygg_ep != cur:
+                if is_bad(ygg_ep):
+                    if ygg_ep != skip_logged:
+                        skip_logged = ygg_ep
+                        left = int(_bad_until.get(ygg_ep, 0) - time.time())
+                        slog(f"[net] mesh endpoint {ygg_ep} failed recently - "
+                             f"retrying in ~{max(left, 0)}s.", flush=True)
                 else:
-                    why = f"{transport} endpoint renewed"
-                transport = desired
-                cur[desired] = want
-                if want == skip_logged:
-                    skip_logged = ""  # retrying it now: future skips re-log
-                alive = switch_to(desired, want, why)
-                if first_run and not alive:
-                    slog("[net] proxy not responding on startup - server "
-                         "self-heals, following its fresh endpoint ...",
-                         flush=True)
-                    slog("[chrome] window held until traffic flows "
-                         "(no dead browser).", flush=True)
-                if alive:
-                    open_chrome_once()
-                slog("-" * 60)
-                slog(f"PROXY ADDRESS (manual use): 127.0.0.1:{LOCAL_SOCKS_PORT} (SOCKS5 + HTTP)")
-                slog(f"SERVER: {want} "
-                      f"({'mesh-ygg' if desired == 'ygg' else 'encrypted-bore'}) "
-                      f"[leg: {transport}]")
-                slog("IP: USA (Phoenix, Arizona)")
-                slog("-" * 60, flush=True)
-                if alive:
-                    open_chrome_once()
-                elif chrome and chrome_opened:
-                    slog("Endpoint renewed - using the already-open Chrome "
-                          "window (no new window).", flush=True)
-                first_run = False
+                    cur = ygg_ep
+                    if ygg_ep == skip_logged:
+                        skip_logged = ""  # retrying it now
+                    alive = switch_to(ygg_ep, "mesh endpoint renewed"
+                                      if not first_run else "initial connect")
+                    if first_run and not alive:
+                        slog("[net] mesh not reachable on startup - "
+                             "following its fresh endpoint ...", flush=True)
+                        slog("[chrome] window held until traffic flows "
+                             "(no dead browser).", flush=True)
+                    if alive:
+                        open_chrome_once()
+                    slog("-" * 60)
+                    slog(f"PROXY ADDRESS (manual use): 127.0.0.1:{LOCAL_SOCKS_PORT} (SOCKS5 + HTTP)")
+                    slog(f"SERVER: {ygg_ep} (mesh-ygg) [leg: mesh]")
+                    slog("IP: USA (Phoenix, Arizona)")
+                    slog("-" * 60, flush=True)
+                    if alive:
+                        open_chrome_once()
+                    elif chrome and chrome_opened:
+                        slog("Endpoint renewed - using the already-open Chrome "
+                              "window (no new window).", flush=True)
+                    first_run = False
             if proc and proc.poll() not in (None, 0):
                 _code = proc.poll()
                 stop_tunnel(proc, tun_log)
                 proc, tun_log = start_tunnel(exe, client_cfg)
                 slog(f"[tunnel] local sing-box died (exit {_code}) - "
-                     f"restarted on {transport}.", flush=True)
-            # --- client-side healing: does traffic REALLY flow? ---
-            # (TCP to bore.pub is not enough: the tunnel can be up while
-            # the server-side proxy refuses everything -> ERROR flood.)
-            if cur[transport]:
+                     f"restarted on mesh.", flush=True)
+            # --- healing: does traffic REALLY flow through the mesh? ---
+            if cur:
                 ok, reason = check_tunnel()
                 # Literal visibility: every failure and every recovery logged.
                 if not ok and (dead == 0 or (dead + 1) % 3 == 0):
-                    slog(f"[check] {transport} via 127.0.0.1:{LOCAL_SOCKS_PORT}: "
+                    slog(f"[check] mesh via 127.0.0.1:{LOCAL_SOCKS_PORT}: "
                          f"FAIL ({reason}) - dead streak {dead + 1}.", flush=True)
                 if ok:
                     if dead:
                         slog("[check] traffic flows again.", flush=True)
                     dead = 0
-                    _bad_until.pop(cur[transport], None)
+                    _bad_until.pop(cur, None)
                     open_chrome_once()  # deferred open fires here
                 else:
                     dead += 1
-                    # Instant failover: the other leg may already be fine.
-                    # transport flips ONLY on success: switch_to may SKIP
-                    # (ygg pre-gate) or FAIL while the old tunnel still
-                    # serves - relabeling it corrupts every later decision
-                    # (observed: 'restarted on ygg' while serving bore).
-                    # Ygg attempts also respect the unified cooldown: a
-                    # mesh TCP timeout costs 12s, and retrying it every 5s
-                    # loop starves bore healing (the dead-streak-21+ trap).
-                    other = "ygg" if transport == "bore" else "bore"
-                    if other == "ygg" and time.time() < _ygg_cool_until:
-                        pass  # mesh cooling down: heal bore instead, retry later
-                    elif cur[other]:
-                        slog(f"[failover] {transport} dead - trying {other} "
-                             f"{cur[other]} now ...", flush=True)
-                        if switch_to(other, cur[other], "failover"):
-                            if transport == "ygg":
-                                # Leaving a dead mesh leg: it must RE-prove
-                                # via background probe, never jump straight
-                                # back into the same dead endpoint.
-                                ygg_proven = False
-                            transport = other
-                            dead = 0
-                        elif other == "ygg":
-                            ygg_proven = False
-                    elif transport == "ygg":
-                        ygg_proven = False
-                    # Follow-only: the workflow heals itself on FIRST failure and
-                    # publishes a new endpoint; the loop above picks it up.
-            # Poll fast while down (5s) so the switch is instant, calm (15s)
+                    # No fallback leg exists: keep polling fast so a
+                    # republished endpoint is picked up at once (the fetch
+                    # above + SHA-pin do the healing).
+            # Poll fast while down (5s) so recovery is instant, calm (15s)
             # while healthy. Raw polling is free; the API stays throttled.
             time.sleep(5 if dead else 15)
     except KeyboardInterrupt:

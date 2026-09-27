@@ -61,7 +61,7 @@ Then tap **✓** to save.
 
 | Step | What to do |
 |:---:|---|
-| **4** | On the main screen tap **⋮** → **Update subscription** → you will see **two** configs: `IPNET-USA` (fast bore link, changes every few minutes) and `IPNET-USA-YGG` (stable mesh link, recommended). |
+| **4** | On the main screen tap **⋮** → **Update subscription** → you will see one config: `IPNET-USA-YGG` (stable mesh link). |
 | **5** | **For the stable link:** open the **Yggdrasil app first** and start it (add these peers once in its settings if empty — copy/paste):<br>`tls://mn.us.ygg.triplebit.org:993`<br>`tls://marisa.nadeko.net:44442`<br>`tls://ygg.mnpnk.com:443`<br>Keep it running, then in v2rayNG tap `IPNET-USA-YGG` → tap **▶** → allow the VPN permission. |
 | **6** | Verify it worked at [ipleak.net](https://ipleak.net/) — it should show **United States**. |
 | **7** | If it stops working later: restart the service from the notification, then **⋮** → **Update subscription** → reconnect. (Yggdrasil app must stay running for the `-YGG` config.) |
