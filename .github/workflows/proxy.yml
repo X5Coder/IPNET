@@ -110,13 +110,26 @@ jobs:
           sleep 20
           cat /tmp/ygg.log
           YGG_IP=$(yggdrasilctl -endpoint tcp://127.0.0.1:9001 getSelf 2>/dev/null | grep -v "/64" | grep -oE "2[0-9a-f]{2}:[0-9a-f:]+:[0-9a-f]+" | head -1)
-          if [ -z "$YGG_IP" ]; then
-            echo "YGG node failed to peer - bore continues alone (see /tmp/ygg.log)"
-            echo "" > ss_ygg_url.txt
-          else
-            echo "YGG node up, mesh ip: $YGG_IP"
-            yggdrasilctl getPeers || true
+          # GATE: publish the mesh endpoint ONLY if the node really peered
+          # AND the ss server really listens - otherwise an unroutable ghost
+          # IP would be published and clients would chase a dead leg.
+          YGG_OK=0
+          if [ -n "$YGG_IP" ]; then
+            for _w in $(seq 1 6); do
+              if yggdrasilctl -endpoint tcp://127.0.0.1:9001 getPeers 2>/dev/null | grep -q " Up "; then
+                YGG_OK=1; break
+              fi
+              echo "ygg mesh not peered yet ($_w/6) - waiting ..."
+              sleep 10
+            done
+          fi
+          if [ "$YGG_OK" -eq 1 ] && (ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | grep -q ":8388"; then
+            echo "YGG node peered + ss listening - publishing mesh endpoint"
+            yggdrasilctl -endpoint tcp://127.0.0.1:9001 getPeers || true
             echo "[$YGG_IP]:8388" > ss_ygg_url.txt
+          else
+            echo "YGG leg NOT verified (peered=$YGG_OK) - publishing EMPTY, bore carries alone"
+            echo "" > ss_ygg_url.txt
           fi
           cat ss_ygg_url.txt || true
           echo "### YGG_MESH: $(cat ss_ygg_url.txt 2>/dev/null)" >> $GITHUB_STEP_SUMMARY
@@ -393,7 +406,12 @@ jobs:
             echo dead; return 1
           }
           ygg_publish() {
-            # refresh ss_ygg_url.txt from the live node; republish on change
+            # refresh ss_ygg_url.txt from the live node; republish on change.
+            # Publish ONLY while peered - never broadcast an unroutable ghost.
+            if ! yggdrasilctl -endpoint tcp://127.0.0.1:9001 getPeers 2>/dev/null | grep -q " Up "; then
+              echo "ygg not peered - publish skipped (file keeps last value)"
+              return 1
+            fi
             _ip=$(yggdrasilctl -endpoint tcp://127.0.0.1:9001 getSelf 2>/dev/null | grep -v "/64" | grep -oE "2[0-9a-f]{2}:[0-9a-f:]+:[0-9a-f]+" | head -1)
             [ -z "$_ip" ] && return 1
             _cur="[${_ip}]:8388"

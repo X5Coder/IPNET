@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.5.4"
+APP_VERSION = "v1.5.5"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -1390,6 +1390,7 @@ def run_terminal(cfg):
     transport = "bore"  # active leg; ygg preferred whenever it proves itself
     cur = {"bore": "", "ygg": ""}
     logged = {"bore": "", "ygg": ""}  # last endpoint values already printed
+    skip_logged = ""  # last bad endpoint we warned about (warn once)
     dead = 0
     _ygg_last_try = time.time()  # startup already tried once above
     client_cfg = os.path.join(app_dir(), "sb-client.json")
@@ -1510,10 +1511,12 @@ def run_terminal(cfg):
             do_switch = True
             if (desired != transport or want != cur[transport]) \
                     and is_bad(want):
-                left = int(_bad_until.get(want, 0) - time.time())
-                slog(f"[net] {desired} endpoint {want} failed {left}s ago - "
-                     f"skipping switch for {max(left, 0)}s (staying on "
-                     f"{transport}).", flush=True)
+                if want != skip_logged:
+                    skip_logged = want
+                    left = int(_bad_until.get(want, 0) - time.time())
+                    slog(f"[net] {desired} endpoint {want} failed recently - "
+                         f"skipping switch for ~{max(left, 0)}s (staying on "
+                         f"{transport}; will retry automatically).", flush=True)
                 cur[desired] = want  # adopt quietly, log once
                 do_switch = False
             if do_switch and (desired != transport or want != cur[transport]):
@@ -1525,6 +1528,8 @@ def run_terminal(cfg):
                     why = f"{transport} endpoint renewed"
                 transport = desired
                 cur[desired] = want
+                if want == skip_logged:
+                    skip_logged = ""  # retrying it now: future skips re-log
                 alive = switch_to(desired, want, why)
                 if first_run and not alive:
                     slog("[net] proxy not responding on startup - server "
