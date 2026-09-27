@@ -104,8 +104,16 @@ jobs:
           # and DHT routes can never converge to a moving target).
           # Adopt the latest COMMITTED key first: narrows the race to
           # seconds and keeps ONE stable identity across generations.
+          # VERDICT (visible in log + run summary, no guessing):
           git fetch origin main --depth 1 2>/dev/null || true
-          git checkout origin/main -- ygg-node/ygg.conf 2>/dev/null || true
+          if git checkout origin/main -- ygg-node/ygg.conf 2>/dev/null \
+            && [ -f ygg-node/ygg.conf ]; then
+            echo "ygg.conf: ADOPTED committed identity (stable mesh IP across generations)"
+            echo "### YGG_IDENTITY: adopted (stable)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "ygg.conf: NO committed identity on main - fresh key will be generated (first run ever?)"
+            echo "### YGG_IDENTITY: fresh (first run?)" >> $GITHUB_STEP_SUMMARY
+          fi
           # Key posture (unchanged): the key is public in the repo - same
           # as the public ss password. Anyone may use the proxy; worst
           # case is impersonation noise, not data theft (Shadowsocks
@@ -478,6 +486,12 @@ jobs:
             push_urls "$URL" "$SS_URL"
             mark_born
           }
+          # Mid-run churn detector: same key => same mesh IP, ALWAYS. If
+          # the published endpoint ever changes under a live run, the
+          # identity churned (overlapping generation / history rewrite)
+          # and every client route must reconverge - say it LOUDLY.
+          _ygg_birth="$(cat ss_ygg_url.txt 2>/dev/null | tr -d ' \r\n')"
+          _ygg_churn_warned=0
           for i in $(seq 1 600); do
             echo "[$i/600] $(date -u) - alive"
             # --- generational handover (first iteration only) ---
@@ -510,6 +524,16 @@ jobs:
             _bore_bad=0  # set to 1 on any bore test FAIL (tails gate)
             _ygg_st=$(ygg_check) && echo "ygg node: $_ygg_st" || echo "ygg node: dead (bore continues alone)"
             if [ "$_ygg_st" != "dead" ]; then ygg_publish || echo "ygg publish skipped"; fi
+            _ycur="$(cat ss_ygg_url.txt 2>/dev/null | tr -d ' \r\n')"
+            if [ "$_ygg_churn_warned" -eq 0 ] && [ -n "$_ygg_birth" ] \
+              && [ -n "$_ycur" ] && [ "$_ycur" != "$_ygg_birth" ]; then
+              _ygg_churn_warned=1
+              echo "WARNING: YGG endpoint changed MID-RUN "
+              echo "  birth: $_ygg_birth"
+              echo "  now:   $_ycur"
+              echo "  (identity churn - client mesh routes must reconverge!)"
+              echo "### YGG_CHURN: endpoint changed mid-run!" >> $GITHUB_STEP_SUMMARY
+            fi
             curl -s http://127.0.0.1:8080/health | grep -q "Proxy" && echo "http-proxy health ok" || echo "http-proxy health fail"
             # --- real public tests every 20s (bodies swallowed: the old code
             # printed the full {"origin":...} JSON every loop = pure spam) ---
