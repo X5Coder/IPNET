@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.6.2"
+APP_VERSION = "v1.6.3"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -921,6 +921,111 @@ def ygg_exit_hint():
     return ""
 
 
+def _lock_path():
+    try:
+        return os.path.join(app_dir(), "app.lock")
+    except Exception:
+        return None
+
+
+def _pid_alive(pid):
+    try:
+        if os.name == "nt":
+            out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                                 capture_output=True, text=True, timeout=15)
+            return str(pid) in (out.stdout or "")
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return False
+
+
+def _release_own_lock():
+    """Remove app.lock, but only if WE own it."""
+    try:
+        lp = _lock_path()
+        if lp and os.path.exists(lp) and \
+                (open(lp, "r", encoding="utf-8").read()
+                 or "").strip().split("|")[0] == str(os.getpid()):
+            os.remove(lp)
+    except Exception:
+        pass
+
+
+def single_instance_guard():
+    """One manager per machine, newest wins, no wars, no UAC nag.
+
+    Background (from the yggdrasil docs): fresh links are costed HIGHER
+    and every restart resets the DHT - accidental double-clicks used to
+    spawn killer copies that murdered the working node and restarted
+    convergence from zero, forever. Now:
+      - same version already running -> this copy exits quietly (not
+        even a UAC prompt);
+      - older/different version (or lockless pre-mutex copy) running ->
+        it is closed once (upgrade takeover) and this copy proceeds;
+      - stale lock (dead PID) -> adopted silently.
+    Runs FIRST in main(), before elevation and before any window."""
+    lp = _lock_path()
+    me = os.getpid()
+    if not lp:
+        return
+    import atexit
+
+    def _release():
+        _release_own_lock()
+
+    def _read_lock():
+        try:
+            if os.path.exists(lp):
+                parts = (open(lp, "r", encoding="utf-8").read()
+                         or "").strip().split("|")
+                if parts and parts[0].strip().isdigit():
+                    ver = parts[1].strip() if len(parts) > 1 else ""
+                    return int(parts[0].strip()), ver
+        except Exception:
+            pass
+        return None, ""
+
+    def _take():
+        try:
+            with open(lp, "w", encoding="utf-8") as f:
+                f.write(f"{me}|{APP_VERSION}")
+            atexit.register(_release)
+        except Exception:
+            pass
+
+    def _close(pid):
+        try:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/F", "/PID", str(pid)],
+                               capture_output=True, timeout=10)
+            else:
+                import signal
+                os.kill(pid, signal.SIGTERM)
+            return True
+        except Exception:
+            return False
+
+    lock_pid, lock_ver = _read_lock()
+    if lock_pid and lock_pid != me and _pid_alive(lock_pid):
+        if lock_ver == APP_VERSION:
+            slog(f"IPNET {APP_VERSION} is already running (pid {lock_pid}) - "
+                 f"exiting. (One copy only: restarts reset mesh routes.)",
+                 flush=True)
+            try:
+                input("Press Enter to close ...")
+            except Exception:
+                pass
+            sys.exit(0)
+        slog(f"[mgr] taking over from older {lock_ver or 'unknown'} "
+             f"(pid {lock_pid}) ...", flush=True)
+        _close(lock_pid)
+        time.sleep(3)
+    # No live lock: pre-mutex copies (v1.6.2 and older) never wrote one.
+    # The startup sweep below closes them once; this guard then owns it.
+    _take()
+
+
 def kill_other_managers():
     """Single-manager guard: never share the machine with another copy.
 
@@ -1794,12 +1899,15 @@ def run_terminal(cfg):
 
 
 def main():
+    # Single instance FIRST (before reset/elevation/windows): a second
+    # copy exits quietly here - no UAC nag, no node-killing wars.
+    single_instance_guard()
     if "--reset" in sys.argv:
         try:
             os.remove(config_path())
         except Exception:
             pass
-    # Elevation FIRST, before ANY window (Windows): the mesh leg needs
+    # Elevation SECOND, before ANY window (Windows): the mesh leg needs
     # the TUN interface, which Windows only grants elevated. Flow:
     #   double-click -> console asks for admin -> UAC pops ->
     #   Allow: the elevated copy continues into setup (ONE Start click);
@@ -1814,6 +1922,9 @@ def main():
                  flush=True)
         else:
             slog("[admin] elevation declined - exiting.", flush=True)
+        # Release the lock BEFORE waiting: the elevated child must not
+        # mistake this waiting launcher for a running copy.
+        _release_own_lock()
         try:
             input("Press Enter to close ...")
         except Exception:
