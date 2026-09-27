@@ -6,7 +6,7 @@ Single EXE distributed via GitHub Releases.
 Each launch shows the same simple window:
   1. Paste your proxy repo link (public, or private + token below).
   2. Press Start.
-The app pulls the live endpoint + password from the repo files (no
+The app pulls the live tunnel address + user ID from the repo files (no
 upload, no GitHub login, no tokens needed for public repos), saves
 everything, starts the local tunnel and opens Chrome through the USA IP.
 
@@ -28,12 +28,11 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.6.3"
+APP_VERSION = "v2.0.0"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
 SB_VERSION = "1.14.2"
-SS_METHOD = "aes-256-gcm"
 LOCAL_SOCKS_PORT = 1080
 # Endpoint hysteresis: an endpoint that just failed is not trusted again
 # until this cooldown passes (kills flip-flop storms when two server
@@ -56,61 +55,8 @@ def is_bad(ep):
         return False
 
 
-def is_admin():
-    """True if this process is elevated (Windows) / root (posix)."""
-    try:
-        if os.name == "nt":
-            import ctypes
-            return bool(ctypes.windll.shell32.IsUserAnAdmin())
-        return os.geteuid() == 0
-    except Exception:
-        return False
-
-
-def elevated_cmd():
-    """Argv that re-runs THIS app elevated (Windows runas). Pure builder."""
-    if getattr(sys, "frozen", False):
-        return [sys.executable, "--elevated"]
-    return [sys.executable, os.path.abspath(__file__), "--elevated"]
-
-
-def try_elevate(reason):
-    """Relaunch self with admin rights (one UAC prompt). Returns True if
-    the elevated copy was launched (caller must exit). Pure stdlib."""
-    if os.name != "nt":
-        return False
-    try:
-        cmd = elevated_cmd()
-        ps = ("Start-Process -FilePath '" + cmd[0].replace("'", "''") + "'"
-              + (" -ArgumentList '" + " ".join(
-                  a.replace("'", "''") for a in cmd[1:]) + "'"
-                 if len(cmd) > 1 else "")
-              + " -Verb RunAs -PassThru")
-        out = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
-            capture_output=True, text=True, timeout=60)
-        if out.returncode == 0:
-            slog(f"[admin] elevated copy launched ({reason}) - "
-                 "this window will close.", flush=True)
-            return True
-        slog("[admin] elevation declined/failed - continuing unelevated.",
-             flush=True)
-    except Exception as e:
-        slog(f"[admin] elevation failed: {e} - continuing unelevated.",
-             flush=True)
-    return False
-# Yggdrasil mesh transport (the ONLY transport).
-YGG_VERSION = "0.5.14"
-YGG_MSI_URL = ("https://github.com/yggdrasil-network/yggdrasil-go/releases/"
-               "download/v0.5.14/yggdrasil-0.5.14-x64.msi")
-YGG_PEERS = ("tls://mn.us.ygg.triplebit.org:993",
-             "tls://marisa.nadeko.net:44442",
-             "tls://ygg.mnpnk.com:443")
-YGG_ADMIN = "tcp://127.0.0.1:9001"
-YGG_SS_PORT = 8388
-
-
-ELEVATED = "--elevated" in sys.argv
+# (Cloudflare era: no admin rights needed - plain user launch. The old
+# elevation flow and the whole Yggdrasil transport were removed in v2.0.0.)
 
 
 def slog(*args, **kwargs):
@@ -210,8 +156,12 @@ def load_config():
     try:
         with open(config_path(), "r", encoding="utf-8") as f:
             cfg = json.load(f)
-        if cfg.get("owner") and cfg.get("repo") and cfg.get("password"):
+        if cfg.get("owner") and cfg.get("repo") and cfg.get("uuid"):
             return cfg
+        # Migrate pre-v2 configs (password-based) -> re-attach needed.
+        if cfg.get("owner") and cfg.get("repo") and cfg.get("password") \
+                and not cfg.get("uuid"):
+            return None
         return None
     except Exception:
         return None
@@ -257,63 +207,44 @@ def parse_repo_url(s):
     return None
 
 
-def extract_password_from_repo_text(singbox_text="", workflow_text="", server_text=""):
-    """Extract Shadowsocks password from public repo files.
-    Priority: singbox-server.json -> proxy.yml PROXY_PASS -> server.py."""
-    method = SS_METHOD
+def extract_uuid_from_repo_text(singbox_text=""):
+    """Extract the VMess user UUID from singbox-server.json (public file).
+    Returns uuid string or ''."""
     if singbox_text:
         try:
             data = json.loads(singbox_text)
             for inbound in data.get("inbounds", []):
-                pwd = inbound.get("password")
-                m = inbound.get("method")
-                if pwd:
-                    if m:
-                        method = m
-                    return pwd, method
+                for u in inbound.get("users", []):
+                    if u.get("uuid"):
+                        return u["uuid"]
         except Exception:
             pass
-        m = re.search(r'"password"\s*:\s*"([^"]{4,128})"', singbox_text)
+        m = re.search(r'"uuid"\s*:\s*"([0-9a-fA-F-]{36})"', singbox_text)
         if m:
-            return m.group(1), method
-    if workflow_text:
-        m = re.search(r"PROXY_PASS='([^']{4,128})'", workflow_text)
-        if m:
-            return m.group(1), method
-        m = re.search(r'PROXY_PASS="([^"]{4,128})"', workflow_text)
-        if m:
-            return m.group(1), method
-    if server_text:
-        m = re.search(r'PROXY_PASSWORD",\s*"([^"]{4,128})"', server_text)
-        if m:
-            return m.group(1), method
-    return "", method
+            return m.group(1)
+    return ""
 
 
-def _valid_ygg_endpoint(v):
-    """'[ipv6]:port' -> 'ipv6:port' or ''."""
-    m = re.match(r"^\[([0-9a-fA-F:]+)\]:(\d{1,5})$", (v or "").strip())
-    return f"{m.group(1)}:{m.group(2)}" if m else ""
+def _valid_cf_host(v):
+    """'abc123.trycloudflare.com' -> itself or ''."""
+    v = (v or "").strip().lower()
+    return v if re.match(r"^[a-z0-9-]+\.trycloudflare\.com$", v) else ""
 
 
 def fetch_public_repo_snapshot(owner, repo):
     """Read-only check of a PUBLIC repo (no login). Returns
-    {endpoint, endpoint_file, password, method, has_code}.
-    Mesh-only: the endpoint comes from ss_ygg_url.txt."""
+    {endpoint, endpoint_file, uuid, has_code}.
+    Cloudflare era: the endpoint is the tunnel hostname in cf_vmess.txt,
+    auth is the VMess UUID in singbox-server.json."""
     base = f"{RAW}/{owner}/{repo}/main"
-    endpoint = _valid_ygg_endpoint(raw_get(f"{base}/ss_ygg_url.txt", bust=True))
-    endpoint_file = "ss_ygg_url.txt" if endpoint else ""
+    endpoint = _valid_cf_host(raw_get(f"{base}/cf_vmess.txt", bust=True))
+    endpoint_file = "cf_vmess.txt" if endpoint else ""
     singbox_text = raw_get(f"{base}/singbox-server.json", bust=True)
     workflow_text = raw_get(f"{base}/.github/workflows/proxy.yml", bust=True)
     has_code = bool(singbox_text or workflow_text)
-    server_text = ""
-    if not has_code:
-        server_text = raw_get(f"{base}/server.py")
-        has_code = bool(server_text and "proxy" in server_text.lower())
-    password, method = extract_password_from_repo_text(
-        singbox_text, workflow_text, server_text)
+    uuid = extract_uuid_from_repo_text(singbox_text)
     return {"endpoint": endpoint, "endpoint_file": endpoint_file,
-            "password": password, "method": method, "has_code": has_code}
+            "uuid": uuid, "has_code": has_code}
 
 
 def setup_attach(repo_text, log):
@@ -330,14 +261,13 @@ def setup_attach(repo_text, log):
     if not snap["has_code"]:
         raise RuntimeError("No proxy code in this repo yet. Create it from the "
                            "template first (Step 1), then paste its link here.")
-    if not snap["password"]:
-        raise RuntimeError("Code found but password unreadable - recreate from template.")
-    cfg = {"owner": owner, "repo": repo, "password": snap["password"],
-           "method": snap.get("method") or SS_METHOD,
+    if not snap["uuid"]:
+        raise RuntimeError("Code found but user ID unreadable - recreate from template.")
+    cfg = {"owner": owner, "repo": repo, "uuid": snap["uuid"],
            "attached": True, "readonly": True}
     save_config(cfg)
     if snap["endpoint"]:
-        log(f"Attached! Live endpoint: {snap['endpoint']}")
+        log(f"Attached! Live tunnel: {snap['endpoint']}")
         return cfg
     # First build still running: WAIT here (up to ~12 min) with live
     # progress, so the window only closes into run mode (and Chrome)
@@ -346,10 +276,10 @@ def setup_attach(repo_text, log):
     started = time.time()
     for _i in range(48):
         time.sleep(15)
-        v = _valid_ygg_endpoint(
-            raw_get(f"{RAW}/{owner}/{repo}/main/ss_ygg_url.txt", bust=True))
+        v = _valid_cf_host(
+            raw_get(f"{RAW}/{owner}/{repo}/main/cf_vmess.txt", bust=True))
         if v:
-            log(f"Ready! Mesh endpoint: {v}")
+            log(f"Ready! Tunnel: {v}")
             return cfg
         mins = int((time.time() - started) // 60) + 1
         log(f"... still building (~{mins} min elapsed, "
@@ -783,16 +713,16 @@ def _api_latest_sha(owner, repo, path="ss_url.txt"):
     return ""
 
 
-def fetch_pinned_ygg(cfg):
-    """Fresh mesh endpoint via SHA-pinned raw URL (bypasses the ~5min
-    branch CDN cache). Returns ('ss_ygg_url.txt', 'ipv6:port') or ('','').
+def fetch_pinned_cf(cfg):
+    """Fresh tunnel hostname via SHA-pinned raw URL (bypasses the ~5min
+    branch CDN cache). Returns ('cf_vmess.txt', 'host') or ('','').
     Throttled to ~90s per path (unauthenticated API limit)."""
     global _last_seen_sha
-    path = "ss_ygg_url.txt"
+    path = "cf_vmess.txt"
     sha = _api_latest_sha(cfg["owner"], cfg["repo"], path)
     if not sha or sha == _last_seen_sha.get(path, ""):
         return "", ""
-    v = _valid_ygg_endpoint(raw_get(
+    v = _valid_cf_host(raw_get(
         f"{RAW}/{cfg['owner']}/{cfg['repo']}/{sha}/{path}", timeout=15))
     _last_seen_sha[path] = sha
     return (path, v) if v else ("", "")
@@ -857,70 +787,6 @@ def stop_tunnel(proc, lf):
         pass
 
 
-# ---------------- Yggdrasil mesh transport (single leg) ---
-_ygg_proc = None
-
-
-def ygg_dir():
-    d = os.path.join(app_dir(), "ygg")
-    os.makedirs(d, exist_ok=True)
-    return d
-
-
-def ensure_yggdrasil():
-    """Download + extract the Windows yggdrasil binary once (like sing-box).
-    Returns yggdrasil.exe path or '' (caller must fail loudly - there is
-    no fallback transport)."""
-    if os.name != "nt":
-        slog("[ygg] auto-setup is Windows-only here. "
-             "(Linux: apt install yggdrasil, then restart.)", flush=True)
-        return ""
-    d = os.path.join(ygg_dir(), "v" + YGG_VERSION)
-    exe = os.path.join(d, "PFiles", "Yggdrasil", "yggdrasil.exe")
-    ctl = os.path.join(d, "PFiles", "Yggdrasil", "yggdrasilctl.exe")
-    if os.path.exists(exe) and os.path.exists(ctl):
-        slog(f"[ygg] binary v{YGG_VERSION} ready.", flush=True)
-        return exe
-    slog(f"[ygg] downloading yggdrasil v{YGG_VERSION} (one time, ~6MB) ...",
-         flush=True)
-    os.makedirs(d, exist_ok=True)
-    msi = os.path.join(ygg_dir(), f"yggdrasil-{YGG_VERSION}.msi")
-    try:
-        if not os.path.exists(msi):
-            urllib.request.urlretrieve(YGG_MSI_URL, msi)
-        slog("[ygg] extracting (no install, no admin) ...", flush=True)
-        subprocess.run(["msiexec", "/a", msi, "/qn", f"TARGETDIR={d}"],
-                       capture_output=True, timeout=120)
-        time.sleep(3)
-        if os.path.exists(exe) and os.path.exists(ctl):
-            slog("[ygg] binary ready.", flush=True)
-            return exe
-    except Exception as e:
-        slog(f"[ygg] setup failed: {e}", flush=True)
-    slog("[ygg] setup failed.", flush=True)
-    return ""
-
-
-def ygg_exit_hint():
-    """Read ygg/ygg.log tail and translate a dead node into an actionable
-    hint. Returns hint string (may be '')."""
-    try:
-        with open(os.path.join(ygg_dir(), "ygg.log"), "r", encoding="utf-8",
-                  errors="ignore") as f:
-            tail = f.read()[-3000:].lower()
-        if "access is denied" in tail:
-            return ("TUN blocked: Windows needs admin for the mesh interface. "
-                    "Right-click IPNET.exe -> 'Run as administrator' and retry. "
-                    "(One UAC click.)")
-        if "panic" in tail or "fatal" in tail:
-            last = [l for l in tail.splitlines()
-                    if "panic" in l or "fatal" in l][-1].strip()[:160]
-            return f"node error: {last}"
-    except Exception:
-        pass
-    return ""
-
-
 def _lock_path():
     try:
         return os.path.join(app_dir(), "app.lock")
@@ -953,18 +819,15 @@ def _release_own_lock():
 
 
 def single_instance_guard():
-    """One manager per machine, newest wins, no wars, no UAC nag.
+    """One manager per machine, newest wins, no wars, no prompts.
 
-    Background (from the yggdrasil docs): fresh links are costed HIGHER
-    and every restart resets the DHT - accidental double-clicks used to
-    spawn killer copies that murdered the working node and restarted
-    convergence from zero, forever. Now:
-      - same version already running -> this copy exits quietly (not
-        even a UAC prompt);
-      - older/different version (or lockless pre-mutex copy) running ->
+    Background: duplicate managers fight over port 1080 and kill each
+    other's tunnels, so both flap forever. Now:
+      - same version already running -> this copy exits quietly;
+      - older/different version (or lockless legacy copy) running ->
         it is closed once (upgrade takeover) and this copy proceeds;
       - stale lock (dead PID) -> adopted silently.
-    Runs FIRST in main(), before elevation and before any window."""
+    Runs FIRST in main(), before any window."""
     lp = _lock_path()
     me = os.getpid()
     if not lp:
@@ -1010,7 +873,7 @@ def single_instance_guard():
     if lock_pid and lock_pid != me and _pid_alive(lock_pid):
         if lock_ver == APP_VERSION:
             slog(f"IPNET {APP_VERSION} is already running (pid {lock_pid}) - "
-                 f"exiting. (One copy only: restarts reset mesh routes.)",
+                 f"exiting. (One copy only.)",
                  flush=True)
             try:
                 input("Press Enter to close ...")
@@ -1029,13 +892,10 @@ def single_instance_guard():
 def kill_other_managers():
     """Single-manager guard: never share the machine with another copy.
 
-    Two IPNET managers (the classic case: an old version still running
-    elevated) wage war forever: each kills the other's ygg node, both
-    fight over :1080 so both tunnels flap, and the log fills with
-    'died - restarted'. The NEW copy wins: any other IPNET* binary, or
-    any python running THIS script (except this process), is closed
-    first; orphaned nodes are reaped by start_ygg_node afterwards.
-    Runs ONCE at startup (after elevation), never in-loop."""
+    Two IPNET managers fight over port 1080, so both tunnels flap and
+    the log fills with 'died - restarted'. The NEW copy wins: any other
+    IPNET* binary, or any python running THIS script (except this
+    process), is closed first. Runs ONCE at startup, never in-loop."""
     if os.name != "nt":
         return
     me = os.getpid()
@@ -1085,317 +945,27 @@ def kill_other_managers():
     time.sleep(3)  # let ports settle before binding
 
 
-def clear_port_owner(port=9001):
-    """Free 127.0.0.1:<port> from OUR OWN squatters before binding.
-
-    Two IPNET copies (e.g. old version still running elevated) fight
-    over the same admin port and the same ygg.conf: each launch kills
-    the other's node and its own node then dies on bind ('exited at
-    once' forever). So: whoever LISTENs on <port> and is one of ours
-    (yggdrasil.exe or any IPNET* binary, except THIS process) is
-    killed automatically. Anything foreign is only REPORTED, never
-    touched. Returns list of killed 'name(pid)'.
-    Windows-only (the ygg auto-setup itself is Windows-only here)."""
-    killed = []
-    if os.name != "nt":
-        return killed
-    try:
-        me = os.getpid()
-        ps = ("$c = Get-NetTCPConnection -LocalPort " + str(port) +
-              " -State Listen -ErrorAction SilentlyContinue; "
-              "foreach ($x in $c) { "
-              "try { $p = Get-Process -Id $x.OwningProcess -ErrorAction Stop; "
-              "\"{0}|{1}\" -f $x.OwningProcess, $p.ProcessName } "
-              "catch { } }")
-        out = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
-            capture_output=True, text=True, timeout=20)
-        for line in (out.stdout or "").splitlines():
-            line = line.strip()
-            if "|" not in line:
-                continue
-            pid_s, name = line.split("|", 1)
-            if not pid_s.strip().isdigit():
-                continue
-            pid = int(pid_s.strip())
-            if pid == me:
-                continue
-            nl = name.strip().lower()
-            if nl == "yggdrasil" or nl.startswith("ipnet"):
-                try:
-                    subprocess.run(["taskkill", "/F", "/PID", str(pid)],
-                                   capture_output=True, timeout=10)
-                    killed.append(f"{name.strip()}({pid})")
-                except Exception:
-                    pass
-            else:
-                slog(f"[ygg] port {port} held by foreign "
-                     f"'{name.strip()}({pid})' - NOT touched (close it "
-                     f"manually if the node keeps dying).", flush=True)
-    except Exception as e:
-        slog(f"[ygg] port-{port} scan skipped: {e}", flush=True)
-    for k in killed:
-        slog(f"[ygg] auto-killed duplicate on port {port}: {k} "
-             f"(same app, would deadlock the node).", flush=True)
-    return killed
-
-
-def ygg_tun_status():
-    """Windows TUN adapter check (the DATA plane).
-
-    Peers can show 'Up' while mesh data is impossible: peer links are
-    plain TLS over ethernet, but every mesh byte (DHT sessions, TCP to
-    the server) must cross the wintun adapter. If the driver is broken
-    or the adapter is down, you get exactly our symptom: peerings Up,
-    everything else TimeoutError, forever. Returns (ok, detail)."""
-    if os.name != "nt":
-        return True, "non-windows (system TUN)"
-    try:
-        ps = ("Get-NetAdapter -ErrorAction SilentlyContinue | "
-              "Where-Object { $_.InterfaceDescription -like '*wintun*' -or "
-              "$_.InterfaceDescription -like '*ygg*' -or "
-              "$_.Name -like '*ygg*' } | ForEach-Object { "
-              "\"{0}|{1}|{2}\" -f $_.Name, $_.Status, "
-              "$_.InterfaceDescription }")
-        out = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
-            capture_output=True, text=True, timeout=20)
-        lines = [l.strip() for l in (out.stdout or "").splitlines()
-                 if "|" in l]
-        if not lines:
-            return False, "no wintun/ygg adapter found"
-        return True, "; ".join(lines)
-    except Exception as e:
-        return False, f"adapter scan skipped: {e}"
-
-
-def start_ygg_node(exe):
-    """Start our mesh node (stable identity kept in ygg.conf). Returns proc
-    or None. No TUN needed for the daemon itself; packet flow needs the
-    wintun driver (one-time admin) - the end-to-end check decides."""
-    global _ygg_proc
-    conf = os.path.join(ygg_dir(), "ygg.conf")
-    try:
-        # Order matters: FIRST free the admin port from our own squatters
-        # (duplicate IPNET copy holding :9001 would kill our node on
-        # bind), THEN clear stale node processes on our conf file.
-        clear_port_owner(9001)
-        # Stale node from a crashed run would hold :9001 and our conf -
-        # clear only processes running OUR conf file, never anything else.
-        try:
-            if os.name == "nt":
-                ps = ("Get-CimInstance Win32_Process -Filter \"Name='yggdrasil.exe'\" | "
-                      "Where-Object { $_.CommandLine -like '*ygg.conf*' } | "
-                      "ForEach-Object { $_.ProcessId }")
-                out = subprocess.run(
-                    ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
-                    capture_output=True, text=True, timeout=20)
-                for pid in (out.stdout or "").split():
-                    if pid.strip().isdigit():
-                        subprocess.run(["taskkill", "/F", "/PID", pid.strip()],
-                                       capture_output=True, timeout=10)
-                        slog("[ygg] cleared stale node process.", flush=True)
-            else:
-                subprocess.run(["pkill", "-f", "ygg.conf"], capture_output=True,
-                               timeout=10)
-        except Exception:
-            pass
-        time.sleep(2)  # let the freed port settle before binding
-        if not os.path.exists(conf):
-            out = subprocess.run([exe, "-genconf"], capture_output=True,
-                                 text=True, timeout=30)
-            s = out.stdout or ""
-            peers = "\n".join("    " + p for p in YGG_PEERS)
-            s = s.replace("Peers: []", "Peers: [\n" + peers + "\n  ]")
-            # Explicit TCP admin: genconf defaults vary by build (unix
-            # socket / localhost). The client always dials
-            # tcp://127.0.0.1:9001, so pin it here like the server does.
-            # Ygg mesh is 200::/7 (2xxx AND 3xxx) - nothing else to touch.
-            try:
-                if "AdminListen:" in s:
-                    s = re.sub(r"AdminListen:\s*\S+.*",
-                               "AdminListen: tcp://127.0.0.1:9001", s)
-                else:
-                    s = s.rstrip()
-                    assert s.endswith("}"), "yggdrasil genconf shape changed!"
-                    s = s[:-1] + "\nAdminListen: tcp://127.0.0.1:9001\n}\n"
-            except Exception:
-                pass
-            with open(conf, "w", encoding="utf-8") as f:
-                f.write(s)
-            slog("[ygg] fresh node identity generated (kept in ygg.conf).",
-                 flush=True)
-        else:
-            # Old confs (pre-AdminListen pin) would leave yggdrasilctl
-            # unable to reach the node -> node looks dead forever.
-            # Patch the file once, in place, without touching the key.
-            try:
-                with open(conf, "r", encoding="utf-8") as f:
-                    _s = f.read()
-                if "127.0.0.1:9001" not in _s:
-                    if "AdminListen:" in _s:
-                        _s = re.sub(r"AdminListen:\s*\S+.*",
-                                    "AdminListen: tcp://127.0.0.1:9001", _s)
-                    else:
-                        _s = _s.rstrip()
-                        if _s.endswith("}"):
-                            _s = _s[:-1] + "\nAdminListen: tcp://127.0.0.1:9001\n}\n"
-                    with open(conf, "w", encoding="utf-8") as f:
-                        f.write(_s)
-                    slog("[ygg] conf patched: AdminListen pinned to 127.0.0.1:9001.",
-                         flush=True)
-                # Peers drift (dead public peers): ensure at least one of
-                # the current YGG_PEERS is present.
-                if not any(p in _s for p in YGG_PEERS):
-                    _peers = "\n".join("    " + p for p in YGG_PEERS)
-                    _s2 = open(conf, encoding="utf-8").read()
-                    _s2 = re.sub(r"Peers:\s*\[[^\]]*\]",
-                                 "Peers: [\n" + _peers + "\n  ]", _s2)
-                    open(conf, "w", encoding="utf-8").write(_s2)
-                    slog("[ygg] conf patched: peers refreshed.", flush=True)
-            except Exception:
-                pass
-            slog("[ygg] reusing saved node identity.", flush=True)
-        lf = open(os.path.join(ygg_dir(), "ygg.log"), "a", encoding="utf-8")
-        _ygg_proc = subprocess.Popen(
-            [exe, "-useconffile", conf], stdout=lf, stderr=subprocess.STDOUT,
-            creationflags=0x08000000 if os.name == "nt" else 0)
-        time.sleep(6)
-        if _ygg_proc.poll() is not None:
-            hint = ygg_exit_hint()
-            slog("[ygg] node exited at once - see ygg/ygg.log. "
-                 + (hint + " " if hint else ""), flush=True)
-            _ygg_proc = None
-            return None
-        ip = ygg_node_ip(exe)
-        slog(f"[ygg] node up. our mesh ip: {ip or 'unknown yet'}", flush=True)
-        _tun_ok, _tun = ygg_tun_status()
-        slog(f"[ygg] TUN adapter: {'present' if _tun_ok else 'MISSING'} "
-             f"({_tun})" + ("" if _tun_ok else
-             " - mesh DATA cannot flow while this is missing (peers may "
-             "still show Up); reinstall Yggdrasil / check the wintun driver."),
-             flush=True)
-        return _ygg_proc
-    except Exception as e:
-        slog(f"[ygg] node start failed: {e}", flush=True)
-        return None
-
-
-def ygg_node_ip(exe):
-    """Our local mesh IPv6 (200::/7 -> 2xxx:... or 3xxx:...) or ''."""
-    try:
-        ctl = os.path.join(os.path.dirname(exe), "yggdrasilctl.exe")
-        out = subprocess.run([ctl, "getSelf"], capture_output=True,
-                             text=True, timeout=15)
-        for line in (out.stdout or "").splitlines():
-            if "/" in line:  # skip the /64 subnet line, want the address
-                continue
-            m = re.search(r"\b([23][0-9a-f]{2}:[0-9a-f:]+:[0-9a-f]+)\b",
-                          line.lower())
-            if m:
-                return m.group(1)
-        return ""
-    except Exception:
-        return ""
-
-
-def ygg_peers_up(exe):
-    """Best-effort count of 'Up' peerings, or -1."""
-    try:
-        ctl = os.path.join(os.path.dirname(exe), "yggdrasilctl.exe")
-        out = subprocess.run([ctl, "getPeers"], capture_output=True,
-                             text=True, timeout=15)
-        return (out.stdout or "").count(" Up ")
-    except Exception:
-        return -1
-
-
-def stop_ygg_node():
-    global _ygg_proc
-    try:
-        if _ygg_proc and _ygg_proc.poll() is None:
-            _ygg_proc.terminate()
-            try:
-                _ygg_proc.wait(timeout=5)
-            except Exception:
-                _ygg_proc.kill()
-    except Exception:
-        pass
-    _ygg_proc = None
-
-
-def fetch_ygg_endpoint(cfg):
-    """Fresh Shadowsocks-over-mesh endpoint from ss_ygg_url.txt.
-    File holds [ipv6]:port; returns ('ss_ygg_url.txt', 'ipv6:port') or ('','')."""
-    v = raw_get(f"{RAW}/{cfg['owner']}/{cfg['repo']}/main/ss_ygg_url.txt",
-                bust=True)
-    v = (v or "").strip()
-    m = re.match(r"^\[([0-9a-fA-F:]+)\]:(\d{1,5})$", v)
-    if m:
-        return "ss_ygg_url.txt", f"{m.group(1)}:{m.group(2)}"
-    return "", ""
-
-
-def split_endpoint(ep):
-    """'[ipv6]:port' or bare 'ipv6:port' -> (host, port)."""
-    s = (ep or "").strip()
-    m = re.match(r"^\[([0-9a-fA-F:]+)\]:(\d{1,5})$", s)
-    if m:
-        try:
-            return m.group(1), int(m.group(2))
-        except Exception:
-            return "", 0
-    host, _, port = s.strip("[]").rpartition(":")
-    try:
-        return host.strip().strip("[]"), int(port)
-    except Exception:
-        return "", 0
-
-
-def ygg_mesh_reachable(host, port, timeout=30):
-    """Raw TCP to [mesh-ip]:port through the local ygg TUN.
-
-    Cheap pre-gate before touching the live tunnel: proves L3 mesh
-    routing exists (jumping straight into rebuilding sing-box on an
-    unroutable ghost IP wastes everything). 30s: a first-contact DHT
-    session across continents routinely needs 10-20s; anything shorter
-    false-negatives a healthy-but-cold route. Returns (ok, reason)."""
-    import socket
-    s = None
-    try:
-        s = socket.create_connection((host, port), timeout=timeout)
-        return True, "mesh TCP open"
-    except Exception as e:
-        return False, f"mesh TCP: {type(e).__name__}"
-    finally:
-        try:
-            if s:
-                s.close()
-        except Exception:
-            pass
-
-
-def build_client_cfg(host, port, method, password):
+def build_client_cfg(host, uuid):
+    """Local sing-box: mixed inbound on 1080, VMess+WS+TLS outbound
+    through the Cloudflare quick tunnel (TLS terminates at the edge,
+    origin is plain WS). Port is always 443."""
     return {
         "log": {"level": "error"},
         "inbounds": [{"type": "mixed", "tag": "in",
                       "listen": "127.0.0.1",
                       "listen_port": LOCAL_SOCKS_PORT}],
-        # connect_timeout 60s (not sing-box's 5s default): the FIRST
-        # Shadowsocks dial over a fresh DHT route needs session setup
-        # across continents - 5s kills it every time (observed as
-        # endless 'code 1' refusals), 60s lets the route converge once
-        # and steady-state dials stay instant.
-        "outbounds": [{"type": "shadowsocks", "tag": "out",
-                       "server": host, "server_port": port,
-                       "method": method, "password": password,
-                       "connect_timeout": "60s"}],
+        "outbounds": [{"type": "vmess", "tag": "out",
+                       "server": host, "server_port": 443,
+                       "uuid": uuid, "alterId": 0,
+                       "tls": {"enabled": True, "server_name": host},
+                       "transport": {"type": "ws", "path": "/ipnet",
+                                     "headers": {"Host": host}}}],
     }
 
 
 def check_tunnel(port=LOCAL_SOCKS_PORT, timeout=12):
     """(ok, reason): SOCKS5 handshake on 127.0.0.1:port + CONNECT probe
-    through the Shadowsocks server. Pure stdlib."""
+    through the tunnel server. Pure stdlib."""
     import socket
     s = None
     try:
@@ -1649,27 +1219,15 @@ def open_usa_chrome(chrome, url=None):
 
 
 def run_terminal(cfg):
-    """Terminal loop: single mesh transport (yggdrasil).
-    Show proxy address, refresh the mesh endpoint, open Chrome only on
+    """Terminal loop: single cloudflared transport (VMess+WS+TLS).
+    Show proxy address, follow the tunnel hostname, open Chrome only on
     working traffic. Every decision is logged literally
-    ([net]/[ygg]/[switch]/[check]).
+    ([net]/[cf]/[switch]/[check]).
     Raises RuntimeError if the repo/endpoint is unusable -> GUI reopens."""
     free_local_port()
-    # NOTE: elevation happens in main() BEFORE any window (single UAC at
-    # launch, single Start click). By the time we are here the process
-    # is already elevated (or non-Windows). No second prompt, ever.
     exe = ensure_singbox()
-    ygg_exe = ensure_yggdrasil()
-    if not ygg_exe:
-        raise RuntimeError("Yggdrasil unavailable on this machine - mesh is the only transport.")
-    ygg_node = start_ygg_node(ygg_exe)
-    if ygg_node:
-        up = ygg_peers_up(ygg_exe)
-        slog(f"[ygg] mesh peerings up: {up if up >= 0 else 'unknown'} "
-             f"(see ygg/ygg.log for detail).", flush=True)
-    else:
-        slog("[ygg] node failed to start - will keep retrying it below.",
-             flush=True)
+    if not cfg.get("uuid"):
+        raise RuntimeError("Missing user ID - re-enter the repo URL.")
     chrome = find_chrome()
     if not chrome:
         slog("WARNING: Chrome not found. Install Google Chrome first.")
@@ -1683,11 +1241,10 @@ def run_terminal(cfg):
         pass
     proc = None
     tun_log = None
-    cur = ""  # active mesh endpoint ('' = no tunnel yet)
-    logged_ep = ""  # last endpoint value already printed
-    skip_logged = ""  # last bad endpoint we warned about (warn once)
+    cur = ""  # active tunnel hostname ('' = no tunnel yet)
+    logged_ep = ""  # last hostname value already printed
+    skip_logged = ""  # last bad hostname we warned about (warn once)
     dead = 0
-    _ygg_last_try = time.time()  # startup already tried once above
     client_cfg = os.path.join(app_dir(), "sb-client.json")
     slog("=" * 60)
     slog(f"  {APP_NAME} {APP_VERSION} - USA proxy (leave this window OPEN)")
@@ -1713,36 +1270,13 @@ def run_terminal(cfg):
         else:
             open_usa_chrome(chrome)
 
-    def switch_to(ep, why):
-        """Rebuild local sing-box for the mesh endpoint and restart."""
+    def switch_to(host, why):
+        """Rebuild local sing-box for the tunnel hostname and restart."""
         nonlocal proc, tun_log
-        host, port = split_endpoint(ep)
-        if not host or not port:
-            slog(f"[switch] {why}: BAD endpoint '{ep}' - skipped.", flush=True)
+        if not host:
+            slog(f"[switch] {why}: BAD hostname - skipped.", flush=True)
             return False
-        # Mesh pre-gate: never tear down a working tunnel for an
-        # unroutable ghost IP. Raw TCP via the TUN must open first.
-        _ok, _why = ygg_mesh_reachable(host, port)
-        if not _ok:
-            try:
-                _up = ygg_peers_up(ygg_exe) if ygg_exe else -1
-            except Exception:
-                _up = -1
-            try:
-                _me = ygg_node_ip(ygg_exe) if (
-                    ygg_exe and ygg_node
-                    and ygg_node.poll() is None) else ""
-            except Exception:
-                _me = ""
-            _tun_ok, _tun = ygg_tun_status()
-            slog(f"[switch] mesh {ep}: skipped ({_why}; node peers={_up} "
-                 f"me={_me or '?'} "
-                 f"tun={'ok' if _tun_ok else 'BROKEN:' + _tun}) - "
-                 f"tunnel untouched.", flush=True)
-            mark_bad(ep)
-            return False
-        ccfg = build_client_cfg(host, port, cfg.get("method", SS_METHOD),
-                                cfg["password"])
+        ccfg = build_client_cfg(host, cfg["uuid"])
         with open(client_cfg, "w", encoding="utf-8") as f:
             json.dump(ccfg, f)
         stop_tunnel(proc, tun_log)
@@ -1756,103 +1290,83 @@ def run_terminal(cfg):
                 with open(tunnel_log_path(), "r", encoding="utf-8",
                           errors="ignore") as _lf:
                     _tail = _lf.read()[-400:]
-                slog(f"[switch] {which} tunnel died at once "
+                slog(f"[switch] cf tunnel died at once "
                      f"(exit {proc.poll()}); log tail: {_tail}", flush=True)
             except Exception:
-                slog(f"[switch] {which} tunnel died at once "
+                slog(f"[switch] cf tunnel died at once "
                      f"(exit {proc.poll()}).", flush=True)
-            mark_bad(ep)
+            mark_bad(host)
             return False
-        # 70s (not the 12s default): the FIRST end-to-end check over a
-        # fresh DHT route needs session setup; steady-state checks answer
-        # in <2s, so the long cap costs nothing normally.
-        ok, reason = check_tunnel(timeout=70)
+        # 30s cap (not the 12s default): the first dial through a fresh
+        # tunnel needs TLS+WS setup; steady-state checks answer in <2s.
+        ok, reason = check_tunnel(timeout=30)
         planned = "planned, no downtime" if dead == 0 else "healing"
-        slog(f"[switch] -> mesh {ep} ({why}; {planned}; "
+        slog(f"[switch] -> cf {host} ({why}; {planned}; "
               f"check: {'OK' if ok else 'FAIL: ' + reason}).", flush=True)
         if ok:
-            _bad_until.pop(ep, None)  # forgiven: it works
-            slog("[ygg] mesh leg live - real traffic flows.", flush=True)
+            _bad_until.pop(host, None)  # forgiven: it works
+            slog("[cf] tunnel live - real traffic flows.", flush=True)
         else:
-            mark_bad(ep)  # don't chase it again until cooldown expires
+            mark_bad(host)  # don't chase it again until cooldown expires
         return ok
 
     try:
         while True:
-            # ---- 1) node watchdog + fresh mesh endpoint ----
-            name_y, ygg_ep = ("", "")
-            if ygg_node and ygg_node.poll() is None:
-                name_y, ygg_ep = fetch_ygg_endpoint(cfg)
-                # Instant path: while the tunnel is down the branch raw URL
-                # can lag ~5 min (CDN cache), so ask the commits API for the
-                # fresh SHA (throttled, ~90s) and jump straight to it.
-                if dead and ygg_ep == cur:
-                    _pn, _pe = fetch_pinned_ygg(cfg)
-                    if _pe and _pe != cur:
-                        slog(f"[net] mesh endpoint via SHA-pin (CDN was stale): {_pe}",
-                             flush=True)
-                        name_y, ygg_ep = "ss_ygg_url.txt", _pe
-                if ygg_ep != logged_ep:
-                    logged_ep = ygg_ep
-                    slog(f"[net] mesh endpoint: '{cur or 'none'}' -> "
-                         f"'{ygg_ep or 'none'}' (source: {name_y or 'unpublished'}).",
+            # ---- 1) fresh tunnel hostname, logged on change ----
+            cf_host = _valid_cf_host(raw_get(
+                f"{RAW}/{cfg['owner']}/{cfg['repo']}/main/cf_vmess.txt",
+                bust=True))
+            # Instant path: while the tunnel is down the branch raw URL can
+            # lag ~5 min (CDN cache), so ask the commits API for the fresh
+            # SHA (throttled, ~90s) and jump straight to the new hostname.
+            if dead and cf_host == cur:
+                _pn, _pe = fetch_pinned_cf(cfg)
+                if _pe and _pe != cur:
+                    slog(f"[net] tunnel via SHA-pin (CDN was stale): {_pe}",
                          flush=True)
-            else:
-                _now = time.time()
-                if _now - _ygg_last_try > 120:
-                    _ygg_last_try = _now
-                    slog("[ygg] node process gone - restarting it ...",
-                         flush=True)
-                    ygg_node = start_ygg_node(ygg_exe)
-                    if ygg_node:
-                        up = ygg_peers_up(ygg_exe)
-                        slog(f"[ygg] node back. mesh ip: "
-                             f"{ygg_node_ip(ygg_exe) or 'unknown yet'} "
-                             f"(peerings up: {up if up >= 0 else 'unknown'}).",
-                             flush=True)
-                    else:
-                        slog("[ygg] restart failed - retrying automatically.",
-                             flush=True)
-                ygg_ep = ""
-            if not ygg_ep:
+                    cf_host = _pe
+            if cf_host != logged_ep:
+                logged_ep = cf_host
+                slog(f"[net] tunnel: '{cur or 'none'}' -> "
+                     f"'{cf_host or 'none'}'.", flush=True)
+            if not cf_host:
                 fails += 1
-                slog(f"[net] no mesh endpoint ({fails}) - node "
-                     f"{'up, waiting for publish' if ygg_node and ygg_node.poll() is None else 'down, restarting'} - "
-                     f"next check soon. Follow https://github.com/{cfg['owner']}/{cfg['repo']}/actions",
+                slog(f"[net] no tunnel published ({fails}) - next check soon. "
+                     f"Follow https://github.com/{cfg['owner']}/{cfg['repo']}/actions",
                      flush=True)
                 if fails >= 10:
-                    raise RuntimeError("No mesh endpoint published. Re-enter the repo URL.")
+                    raise RuntimeError("No tunnel published. Re-enter the repo URL.")
                 time.sleep(60)
                 continue
             fails = 0
-            # ---- 2) switch when the mesh endpoint changed ----
-            # Hysteresis: never jump into an endpoint that failed minutes
+            # ---- 2) switch when the tunnel hostname changed ----
+            # Hysteresis: never jump into a hostname that failed minutes
             # ago. Wait out the cooldown instead (the loop retries
             # automatically when it expires).
-            if ygg_ep != cur:
-                if is_bad(ygg_ep):
-                    if ygg_ep != skip_logged:
-                        skip_logged = ygg_ep
-                        left = int(_bad_until.get(ygg_ep, 0) - time.time())
-                        slog(f"[net] mesh endpoint {ygg_ep} failed recently - "
+            if cf_host != cur:
+                if is_bad(cf_host):
+                    if cf_host != skip_logged:
+                        skip_logged = cf_host
+                        left = int(_bad_until.get(cf_host, 0) - time.time())
+                        slog(f"[net] tunnel {cf_host} failed recently - "
                              f"retrying in ~{max(left, 0)}s.", flush=True)
                 else:
-                    cur = ygg_ep
-                    if ygg_ep == skip_logged:
+                    cur = cf_host
+                    if cf_host == skip_logged:
                         skip_logged = ""  # retrying it now
-                    alive = switch_to(ygg_ep, "mesh endpoint renewed"
+                    alive = switch_to(cf_host, "tunnel renewed"
                                       if not first_run else "initial connect")
                     if first_run and not alive:
-                        slog("[net] mesh not reachable on startup - "
-                             "following its fresh endpoint ...", flush=True)
+                        slog("[net] tunnel not reachable on startup - "
+                             "following its fresh hostname ...", flush=True)
                         slog("[chrome] window held until traffic flows "
                              "(no dead browser).", flush=True)
                     if alive:
                         open_chrome_once()
                     slog("-" * 60)
                     slog(f"PROXY ADDRESS (manual use): 127.0.0.1:{LOCAL_SOCKS_PORT} (SOCKS5 + HTTP)")
-                    slog(f"SERVER: {ygg_ep} (mesh-ygg) [leg: mesh]")
-                    slog("IP: USA (Phoenix, Arizona)")
+                    slog(f"SERVER: {cf_host} (cloudflared) [leg: cf]")
+                    slog("IP: USA")
                     slog("-" * 60, flush=True)
                     if alive:
                         open_chrome_once()
@@ -1866,8 +1380,8 @@ def run_terminal(cfg):
                 stop_tunnel(proc, tun_log)
                 proc, tun_log = start_tunnel(exe, client_cfg)
                 slog(f"[tunnel] local sing-box died (exit {_code}) - "
-                     f"restarted on mesh.", flush=True)
-            # --- healing: does traffic REALLY flow through the mesh? ---
+                     f"restarted on cf.", flush=True)
+            # --- healing: does traffic REALLY flow through the tunnel? ---
             # (Gated on a live tunnel: before the first switch there is
             # nothing on :1080, and a phantom check would only paint a
             # bogus dead streak.)
@@ -1875,7 +1389,7 @@ def run_terminal(cfg):
                 ok, reason = check_tunnel()
                 # Literal visibility: every failure and every recovery logged.
                 if not ok and (dead == 0 or (dead + 1) % 3 == 0):
-                    slog(f"[check] mesh via 127.0.0.1:{LOCAL_SOCKS_PORT}: "
+                    slog(f"[check] cf via 127.0.0.1:{LOCAL_SOCKS_PORT}: "
                          f"FAIL ({reason}) - dead streak {dead + 1}.", flush=True)
                 if ok:
                     if dead:
@@ -1885,9 +1399,9 @@ def run_terminal(cfg):
                     open_chrome_once()  # deferred open fires here
                 else:
                     dead += 1
-                    # No fallback leg exists: keep polling fast so a
-                    # republished endpoint is picked up at once (the fetch
-                    # above + SHA-pin do the healing).
+                    # No fallback exists: keep polling fast so a republished
+                    # hostname is picked up at once (the fetch above +
+                    # SHA-pin do the healing).
             # Poll fast while down (5s) so recovery is instant, calm (15s)
             # while healthy. Raw polling is free; the API stays throttled.
             time.sleep(5 if dead else 15)
@@ -1895,42 +1409,19 @@ def run_terminal(cfg):
         slog("\nStopping...")
     finally:
         stop_tunnel(proc, tun_log)
-        stop_ygg_node()
 
 
 def main():
-    # Single instance FIRST (before reset/elevation/windows): a second
-    # copy exits quietly here - no UAC nag, no node-killing wars.
+    # Single instance FIRST (before reset/windows): a second copy exits
+    # quietly here - no prompts, no tunnel wars.
     single_instance_guard()
     if "--reset" in sys.argv:
         try:
             os.remove(config_path())
         except Exception:
             pass
-    # Elevation SECOND, before ANY window (Windows): the mesh leg needs
-    # the TUN interface, which Windows only grants elevated. Flow:
-    #   double-click -> console asks for admin -> UAC pops ->
-    #   Allow: the elevated copy continues into setup (ONE Start click);
-    #          this window closes itself.
-    #   Deny:  the program EXITS (no half-running copy without mesh).
-    if os.name == "nt" and not is_admin() and not ELEVATED:
-        slog("[admin] IPNET needs administrator (mesh driver) - "
-             "one UAC click ...", flush=True)
-        launched = try_elevate("startup")
-        if launched:
-            slog("[admin] elevated copy starting - this window closes.",
-                 flush=True)
-        else:
-            slog("[admin] elevation declined - exiting.", flush=True)
-        # Release the lock BEFORE waiting: the elevated child must not
-        # mistake this waiting launcher for a running copy.
-        _release_own_lock()
-        try:
-            input("Press Enter to close ...")
-        except Exception:
-            pass
-        sys.exit(0 if launched else 1)
-    # One manager per machine (old copies wage node-killing wars).
+    # No admin rights needed (cloudflared era): plain launch, single
+    # Start click, no UAC. One manager per machine.
     kill_other_managers()
     try:
         # Same screen on EVERY launch, prefilled with the last saved link.

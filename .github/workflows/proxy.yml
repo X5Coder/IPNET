@@ -1,17 +1,18 @@
-name: USA Proxy (GitHub Actions + Yggdrasil mesh)
+name: USA Proxy (GitHub Actions + Cloudflare)
 
 on:
   workflow_dispatch:
   schedule:
     # Every 4h a new generation starts: it verifies + publishes its own
-    # mesh endpoint first, then retires the older run (overlapping
-    # handover, no gap). The mesh identity is stable (key adopted from
-    # the repo), so clients never notice the rotation.
+    # tunnel first, then retires the older run (overlapping handover,
+    # no gap). Each generation gets a fresh random trycloudflare URL;
+    # clients follow it automatically within a minute.
     - cron: '0 */4 * * *'
   push:
     # ZIP-manual setup: starts right after upload. Bot commits (*.txt,
     # *.md) never match these code paths, so no self-trigger loop.
     paths:
+      - "server.py"
       - "singbox-server.json"
       - ".github/workflows/proxy.yml"
 
@@ -20,7 +21,7 @@ permissions:
   actions: write  # retire step cancels the older run after handover
 
 # Generational handover (NOT cancel-on-start): the new run verifies +
-# publishes its own endpoint first, then retires the older run. Killing
+# publishes its own tunnel first, then retires the older run. Killing
 # the old run at startup would open a setup gap every cycle.
 concurrency:
   group: usa-proxy
@@ -37,7 +38,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Start Shadowsocks (encrypted, serves the mesh on IPv6)
+      - name: Start local HTTP proxy (self-test + manual use inside runner)
+        run: |
+          echo "Starting proxy on 0.0.0.0:8080 ..."
+          PORT=8080 PROXY_USER=x5coder PROXY_PASS='X5_Secure_2026!Strong' python3 server.py > /tmp/proxy.log 2>&1 &
+          echo $! > /tmp/proxy.pid
+          sleep 3
+          cat /tmp/proxy.log
+          curl -s http://127.0.0.1:8080/health | head -3
+          echo "Proxy ready (local only - public ingress is cloudflared)"
+
+      - name: Start sing-box (VMess + WebSocket, the ONLY public leg)
         run: |
           echo "Installing sing-box ..."
           SB_VER="1.14.2"
@@ -45,314 +56,236 @@ jobs:
           tar xz -f /tmp/sb.tgz -C /tmp
           cp /tmp/sing-box-*/sing-box /tmp/sing-box && chmod +x /tmp/sing-box
           /tmp/sing-box version
-          echo "Starting ss server on [::]:8388 (dual-stack IPv4+IPv6, mesh needs IPv6) ..."
+          echo "Starting vmess-ws server on 127.0.0.1:10086 ..."
           /tmp/sing-box run -c singbox-server.json > /tmp/ss.log 2>&1 &
           echo $! > /tmp/ss.pid
           sleep 3
           cat /tmp/ss.log
-          ss -tlnp | grep -E "8388" || netstat -tlnp | grep -E "8388" || true
-          # HARD GATE: the mesh leg is IPv6-only. Trust sing-box's own
-          # log (this runner's `ss` renders [::]:8388 as *:8388).
-          if grep -q "tcp server started at \[::\]:8388" /tmp/ss.log; then
-            echo "ss dual-stack listen OK ([::]:8388 serves the mesh)"
+          ss -tlnp | grep -E "10086|8080" || netstat -tlnp | grep -E "10086|8080" || true
+          # GATE: the vmess inbound must be up (cloudflared dials it).
+          if grep -q "vmess" /tmp/ss.log && (ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | grep -q ":10086"; then
+            echo "vmess-ws listen OK (127.0.0.1:10086)"
           else
-            echo "FATAL: ss did NOT bind [::]:8388 - mesh leg would be dead"
+            echo "FATAL: vmess inbound did NOT start"
             cat /tmp/ss.log || true
-            ss -tln || netstat -tln || true
             exit 1
           fi
+          echo "--- local egress IP (should be US) ---"
+          curl -s --max-time 15 -x 'http://x5coder:X5_Secure_2026!Strong@127.0.0.1:8080' http://httpbin.org/ip || echo "LOCAL HTTP FAIL"
+          echo ""
 
-      - name: Start Yggdrasil mesh node (the ONLY transport)
+      - name: Install cloudflared
         run: |
-          # Our own mesh node with a fixed IPv6 (key kept in ./ygg-node,
-          # adopted from the repo when present, committed back otherwise).
-          # The ss server on [::]:8388 answers the mesh - one secret.
-          echo "Installing yggdrasil ..."
-          YGG_VER="0.5.14"
-          curl -sL --max-time 120 "https://github.com/yggdrasil-network/yggdrasil-go/releases/download/v${YGG_VER}/yggdrasil-${YGG_VER}-amd64.deb" -o /tmp/ygg.deb
-          sudo dpkg -i /tmp/ygg.deb
-          yggdrasil --version
-          mkdir -p ygg-node
-          # Overlapping generations check out BEFORE the predecessor
-          # commits its key - adopt the latest COMMITTED key first so one
-          # stable identity (one mesh IP) survives across generations.
-          # VERDICT (visible in log + run summary, no guessing):
-          git fetch origin main --depth 1 2>/dev/null || true
-          if git checkout origin/main -- ygg-node/ygg.conf 2>/dev/null \
-            && [ -f ygg-node/ygg.conf ]; then
-            echo "ygg.conf: ADOPTED committed identity (stable mesh IP across generations)"
-            echo "### YGG_IDENTITY: adopted (stable)" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "ygg.conf: NO committed identity on main - fresh key will be generated (first run ever?)"
-            echo "### YGG_IDENTITY: fresh (first run?)" >> $GITHUB_STEP_SUMMARY
-          fi
-          # Key posture: the key is public in the repo - same as the
-          # public ss password. Anyone may use the proxy; worst case is
-          # impersonation noise, not data theft (Shadowsocks encryption
-          # is a separate layer). Same key => same mesh IP forever
-          # (phone configured once, DHT entries persist).
-          if [ ! -f ygg-node/ygg.conf ]; then
-            (cd ygg-node && yggdrasil -genconf > ygg.conf)
-            python3 - <<'EOF'
-          peers = ["tls://mn.us.ygg.triplebit.org:993",
-                   "tls://marisa.nadeko.net:44442",
-                   "tls://ygg.mnpnk.com:443"]
-          p = "ygg-node/ygg.conf"
-          s = open(p).read()
-          s = s.replace("Peers: []", "Peers: [\n" + "\n".join("    " + x for x in peers) + "\n  ]")
-          # explicit TCP admin: the .deb default is a root-owned unix socket
-          # that unprivileged yggdrasilctl cannot touch
-          s = s.rstrip()
-          assert s.endswith("}"), "yggdrasil genconf shape changed!"
-          s = s[:-1] + "\nAdminListen: tcp://127.0.0.1:9001\n" + "}\n"
-          open(p, "w").write(s)
-          print("ygg.conf: fresh node identity + 3 public peers")
-          EOF
-          else
-            echo "ygg.conf: reusing committed identity (IP stays stable)"
-          fi
-          sudo nohup yggdrasil -useconffile ygg-node/ygg.conf > /tmp/ygg.log 2>&1 &
-          sleep 2
-          pgrep -f "yggdrasil -useconffile" | head -1 | sudo tee /tmp/ygg.pid > /dev/null
-          # Inbound TCP via the TUN must be ACCEPTED: some runner images
-          # drop non-ICMP input on non-eth interfaces (observed: ICMP echo
-          # answered, every TCP SYN blackholed even on closed ports that
-          # should RST). No-op when the chains are already ACCEPT.
-          sudo iptables -I INPUT -i tun1 -j ACCEPT 2>/dev/null || true
-          sudo ip6tables -I INPUT -i tun1 -j ACCEPT 2>/dev/null || true
-          sleep 20
-          cat /tmp/ygg.log
-          # Ygg mesh range is 200::/7 -> addresses start with 2xxx OR 3xxx
-          YGG_IP=$(yggdrasilctl -endpoint tcp://127.0.0.1:9001 getSelf 2>/dev/null | grep -v "/64" | grep -oE "[23][0-9a-f]{2}:[0-9a-f:]+:[0-9a-f]+" | head -1)
-          # GATE: publish the mesh endpoint ONLY if the node really peered
-          # AND the ss server really listens. There is no fallback leg any
-          # more - an unverified run must die loudly, not serve ghosts.
-          YGG_OK=0
-          if [ -n "$YGG_IP" ]; then
-            for _w in $(seq 1 6); do
-              if yggdrasilctl -endpoint tcp://127.0.0.1:9001 getPeers 2>/dev/null | grep -q " Up "; then
-                YGG_OK=1; break
-              fi
-              echo "ygg mesh not peered yet ($_w/6) - waiting ..."
-              sleep 10
-            done
-          fi
-          if [ "$YGG_OK" -eq 1 ] && (ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | grep -q ":8388"; then
-            echo "YGG node peered + ss listening - publishing mesh endpoint"
-            yggdrasilctl -endpoint tcp://127.0.0.1:9001 getPeers || true
-            echo "[$YGG_IP]:8388" > ss_ygg_url.txt
-          else
-            echo "FATAL: YGG leg NOT verified (peered=$YGG_OK) - no fallback exists, failing the run"
-            exit 1
-          fi
-          cat ss_ygg_url.txt || true
-          echo "### YGG_MESH: $(cat ss_ygg_url.txt 2>/dev/null)" >> $GITHUB_STEP_SUMMARY
+          curl -sL --max-time 120 "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb" -o /tmp/cfd.deb
+          sudo dpkg -i /tmp/cfd.deb
+          cloudflared --version
 
-      - name: Publish mesh endpoint (link + subscription + README)
+      - name: Start cloudflared quick tunnel (no account, random URL per run)
         run: |
           make_sub() {
-            # Fixed URLs, evergreen content: android-ss.txt (plain ss://
+            # Fixed URLs, evergreen content: android-ss.txt (plain vmess://
             # link) and sub.txt (base64 subscription for v2rayNG/NekoBox
             # auto-update). The URLs never change; only the content tracks
-            # the live mesh endpoint (stable identity => rarely changes).
-            YGG_URL="$(cat ss_ygg_url.txt 2>/dev/null | tr -d ' \r\n')"
-            [ -z "$YGG_URL" ] && return 0
-            YGG_HOST="$(echo "$YGG_URL" | sed 's/^\[//;s/\].*//')"
-            YGG_PORT="$(echo "$YGG_URL" | sed 's/.*\]://')"
-            PASS="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0]['password'])")"
-            METHOD="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0].get('method','aes-256-gcm'))")"
-            [ -z "$PASS" ] && return 0
-            [ -z "$YGG_HOST" ] || [ -z "$YGG_PORT" ] && return 0
-            USERINFO="$(printf '%s' "$METHOD:$PASS" | base64 -w0 | tr '+/' '-_' | tr -d '=')"
-            LINK="ss://${USERINFO}@[${YGG_HOST}]:${YGG_PORT}#IPNET-USA-YGG"
+            # the live tunnel hostname.
+            CF_HOST="$(cat cf_vmess.txt 2>/dev/null | tr -d ' \r\n')"
+            [ -z "$CF_HOST" ] && return 0
+            UUID="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0]['users'][0]['uuid'])")"
+            [ -z "$UUID" ] && return 0
+            VJSON=$(printf '{"v":"2","ps":"IPNET-USA","add":"%s","port":"443","id":"%s","aid":"0","net":"ws","type":"none","host":"%s","path":"/ipnet","tls":"tls"}' "$CF_HOST" "$UUID" "$CF_HOST")
+            LINK="vmess://$(printf '%s' "$VJSON" | base64 -w0)"
             printf '%s' "$LINK" > android-ss.txt
             printf '%s' "$LINK" | base64 -w0 > sub.txt
-            echo "sub.txt + android-ss.txt published (mesh link)"
+            export IPNET_LINK="$LINK"
+            echo "sub.txt + android-ss.txt published (vmess link)"
           }
           update_readme() {
             # Live block goes INSIDE the normal README (no separate file).
             # Needs <!--IPNET-LIVE-START--> / <!--IPNET-LIVE-END--> markers
             # (shipped in USER_README.md); appends them if ever missing.
+            [ -z "$LINK" ] && LINK="$IPNET_LINK"
             [ -z "$LINK" ] && return 0
             export IPNET_LINK="$LINK"
             export IPNET_SUB="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/sub.txt"
             export IPNET_REPO="https://github.com/$GITHUB_REPOSITORY"
-            python3 -c 'import os; block=("<!--IPNET-LIVE-START-->\n## Live connection (auto-updated, copy from here)\n\n- Repo: "+os.environ["IPNET_REPO"]+"\n\n- Mesh link (Yggdrasil app + v2rayNG, stable address):\n```\n"+os.environ["IPNET_LINK"]+"\n```\n\n- Subscription (fixed forever, auto-updates):\n```\n"+os.environ["IPNET_SUB"]+"\n```\n<!--IPNET-LIVE-END-->"); s=open("README.md",encoding="utf-8").read(); import re; pat=re.compile(r"<!--IPNET-LIVE-START-->.*?<!--IPNET-LIVE-END-->",re.S); s=pat.sub(block,s,count=1) if pat.search(s) else s+"\n"+block+"\n"; open("README.md","w",encoding="utf-8").write(s); print("README live block updated")'
+            python3 -c 'import os,re; block=("<!--IPNET-LIVE-START-->\n## Live connection (auto-updated, copy from here)\n\n- Repo: "+os.environ["IPNET_REPO"]+"\n\n- v2rayNG link (copy/QR, TLS+WebSocket via Cloudflare):\n```\n"+os.environ["IPNET_LINK"]+"\n```\n\n- Subscription (fixed forever, auto-updates):\n```\n"+os.environ["IPNET_SUB"]+"\n```\n<!--IPNET-LIVE-END-->"); s=open("README.md",encoding="utf-8").read(); pat=re.compile(r"<!--IPNET-LIVE-START-->.*?<!--IPNET-LIVE-END-->",re.S); s=pat.sub(block,s,count=1) if pat.search(s) else s+"\n"+block+"\n"; open("README.md","w",encoding="utf-8").write(s); print("README live block updated")'
           }
+          echo "Starting cloudflared quick tunnel to vmess-ws ..."
+          rm -f /tmp/cf.log
+          cloudflared tunnel --url http://localhost:10086 > /tmp/cf.log 2>&1 &
+          echo $! > /tmp/cf.pid
+          CF_HOST=""
+          for _w in $(seq 1 12); do
+            sleep 10
+            CF_HOST=$(grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" /tmp/cf.log 2>/dev/null | head -1 | sed 's|https://||')
+            if [ -n "$CF_HOST" ]; then break; fi
+            echo "tunnel URL not yet published ($_w/12) - waiting ..."
+          done
+          cat /tmp/cf.log
+          if [ -z "$CF_HOST" ]; then echo "FATAL: cloudflared gave no URL"; exit 1; fi
+          echo "$CF_HOST" > cf_vmess.txt
+          echo "TUNNEL: $CF_HOST"
           make_sub
           update_readme
           git config user.name "proxy-bot"
           git config user.email "bot@proxy.usa"
           git pull --rebase --autostash || true
-          git rm --quiet bore_url.txt ss_url.txt proxy_urls.txt 2>/dev/null || true
-          git add ss_ygg_url.txt android-ss.txt sub.txt README.md || true
-          git add -f ygg-node/ygg.conf 2>/dev/null || true
-          git commit -m "publish mesh $(cat ss_ygg_url.txt 2>/dev/null)" || true
+          # Bury the dead transports: remove their endpoint files + mesh key.
+          git rm --quiet bore_url.txt ss_url.txt ss_ygg_url.txt proxy_urls.txt 2>/dev/null || true
+          git rm -r --quiet ygg-node 2>/dev/null || true
+          git add cf_vmess.txt android-ss.txt sub.txt README.md || true
+          git commit -m "publish cloudflared $CF_HOST" || true
           git push || true
-          echo "### MESH: $(cat ss_ygg_url.txt 2>/dev/null)" >> $GITHUB_STEP_SUMMARY
+          date +%s > /tmp/tunnel-born
+          echo "### CLOUDFLARE: $CF_HOST" >> $GITHUB_STEP_SUMMARY
 
-      - name: Mesh loopback test (Shadowsocks over ygg, end-to-end)
+      - name: Loopback test (VMess+WS+TLS through the public tunnel)
         run: |
-          echo "=== Server net diagnostics (permanent: TCP blackholes hide here) ==="
-          echo "--- iptables ---"; sudo iptables -L -n -v 2>/dev/null | head -20 || true
-          echo "--- ip6tables ---"; sudo ip6tables -L -n -v 2>/dev/null | head -20 || true
-          echo "--- listeners ---"; ss -tlnp 2>/dev/null | grep -E "8388|9001" || true
-          echo "--- ipv6 forwarding/rp_filter ---"; sysctl net.ipv6.conf.all.forwarding net.ipv6.conf.tun1.rp_filter net.ipv4.conf.tun1.rp_filter 2>/dev/null || true
-          echo "=== Testing Shadowsocks through MESH (ygg) leg ==="
-          YGG_URL="$(cat ss_ygg_url.txt 2>/dev/null | tr -d ' \r\n')"
-          if [ -z "$YGG_URL" ]; then echo "FATAL: no mesh endpoint published"; exit 1; fi
-          YGG_HOST="$(echo "$YGG_URL" | sed 's/^\[//;s/\].*//')"
-          YGG_PORT="$(echo "$YGG_URL" | sed 's/.*\]://')"
-          echo "--- ygg L3: raw TCP to [$YGG_HOST]:$YGG_PORT via mesh ---"
-          timeout 10 bash -c "cat < /dev/null > /dev/tcp/$YGG_HOST/$YGG_PORT" \
-            && echo "YGG L3 TCP OK" || { echo "FATAL: YGG L3 TCP FAIL"; exit 1; }
-          echo "--- ygg L7: ss handshake + http via socks-1082 ---"
-          printf '{"log":{"level":"info"},"inbounds":[{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":1082}],"outbounds":[{"type":"shadowsocks","tag":"out","server":"%s","server_port":%s,"method":"aes-256-gcm","password":"X5_Secure_2026!Strong"}]}' "$YGG_HOST" "$YGG_PORT" > /tmp/sb-ygg.json
-          /tmp/sing-box run -c /tmp/sb-ygg.json > /tmp/sb-ygg.log 2>&1 &
+          CF_HOST="$(cat cf_vmess.txt 2>/dev/null | tr -d ' \r\n')"
+          [ -z "$CF_HOST" ] && { echo "FATAL: no tunnel hostname"; exit 1; }
+          UUID="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0]['users'][0]['uuid'])")"
+          printf '{"log":{"level":"info"},"inbounds":[{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":1082}],"outbounds":[{"type":"vmess","tag":"out","server":"%s","server_port":443,"uuid":"%s","alterId":0,"tls":{"enabled":true,"server_name":"%s"},"transport":{"type":"ws","path":"/ipnet","headers":{"Host":"%s"}}}]}' "$CF_HOST" "$UUID" "$CF_HOST" "$CF_HOST" > /tmp/sb-cf.json
+          /tmp/sing-box run -c /tmp/sb-cf.json > /tmp/sb-cf.log 2>&1 &
           sleep 3
-          curl -s --max-time 30 --socks5-hostname 127.0.0.1:1082 http://httpbin.org/ip && echo "" && echo "YGG LEG OK (real traffic over mesh)" || { echo "FATAL: YGG LEG FAIL"; tail -20 /tmp/sb-ygg.log || true; exit 1; }
+          echo "--- vmess: http via socks-1082 ---"
+          curl -s --max-time 30 --socks5-hostname 127.0.0.1:1082 http://httpbin.org/ip && echo "" && echo "CF LEG OK (real traffic)" || { echo "FATAL: CF LEG FAIL"; tail -20 /tmp/sb-cf.log || true; tail -20 /tmp/cf.log || true; exit 1; }
+          echo "--- vmess: https via socks-1082 (THE REAL TEST) ---"
+          curl -s --max-time 30 --socks5-hostname 127.0.0.1:1082 https://httpbin.org/ip || { echo "FATAL: CF HTTPS FAIL"; exit 1; }
+          echo ""
           echo "--- ipinfo (should be US) ---"
           curl -s --max-time 20 --socks5-hostname 127.0.0.1:1082 https://ipinfo.io/json | head -12 || true
-          pkill -f sb-ygg.json 2>/dev/null || true
-          echo "MESH TESTS OK"
+          pkill -f sb-cf.json 2>/dev/null || true
+          echo "ALL LOOPBACK TESTS OK"
 
       - name: Keep alive
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           make_sub() {
-            YGG_URL="$(cat ss_ygg_url.txt 2>/dev/null | tr -d ' \r\n')"
-            [ -z "$YGG_URL" ] && return 0
-            YGG_HOST="$(echo "$YGG_URL" | sed 's/^\[//;s/\].*//')"
-            YGG_PORT="$(echo "$YGG_URL" | sed 's/.*\]://')"
-            PASS="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0]['password'])")"
-            METHOD="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0].get('method','aes-256-gcm'))")"
-            [ -z "$PASS" ] && return 0
-            [ -z "$YGG_HOST" ] || [ -z "$YGG_PORT" ] && return 0
-            USERINFO="$(printf '%s' "$METHOD:$PASS" | base64 -w0 | tr '+/' '-_' | tr -d '=')"
-            LINK="ss://${USERINFO}@[${YGG_HOST}]:${YGG_PORT}#IPNET-USA-YGG"
+            CF_HOST="$(cat cf_vmess.txt 2>/dev/null | tr -d ' \r\n')"
+            [ -z "$CF_HOST" ] && return 0
+            UUID="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0]['users'][0]['uuid'])")"
+            [ -z "$UUID" ] && return 0
+            VJSON=$(printf '{"v":"2","ps":"IPNET-USA","add":"%s","port":"443","id":"%s","aid":"0","net":"ws","type":"none","host":"%s","path":"/ipnet","tls":"tls"}' "$CF_HOST" "$UUID" "$CF_HOST")
+            LINK="vmess://$(printf '%s' "$VJSON" | base64 -w0)"
             printf '%s' "$LINK" > android-ss.txt
             printf '%s' "$LINK" | base64 -w0 > sub.txt
           }
           push_urls() {
-            # $1 = reason label (handover | ygg-republish)
+            # $1 = reason label (handover | heal)
             make_sub
             git config user.name "proxy-bot" || true
             git config user.email "bot@proxy.usa" || true
             git pull --rebase --autostash || true
-            git rm --quiet bore_url.txt ss_url.txt proxy_urls.txt 2>/dev/null || true
-            git add ss_ygg_url.txt android-ss.txt sub.txt README.md || true
-            git add -f ygg-node/ygg.conf 2>/dev/null || true
-            git commit -m "mesh ${1:-update} [$(cat ss_ygg_url.txt 2>/dev/null)]" || true
+            git rm --quiet bore_url.txt ss_url.txt ss_ygg_url.txt proxy_urls.txt 2>/dev/null || true
+            git rm -r --quiet ygg-node 2>/dev/null || true
+            git add cf_vmess.txt android-ss.txt sub.txt README.md || true
+            git commit -m "cloudflare ${1:-update} [$(cat cf_vmess.txt 2>/dev/null)]" || true
             git push || true
           }
-          ygg_check() {
-            # reports: ok | restarted | dead  (same run key => same mesh IP)
-            if pgrep -f "yggdrasil -useconffile" >/dev/null 2>&1; then
-              echo ok; return 0
-            fi
-            echo "ygg node dead - restarting with SAME run identity ..." >&2
-            sudo nohup yggdrasil -useconffile ygg-node/ygg.conf > /tmp/ygg.log 2>&1 &
-            sleep 20
-            if pgrep -f "yggdrasil -useconffile" >/dev/null 2>&1; then
-              echo restarted; return 0
-            fi
-            echo dead; return 1
+          # Monitor client: persistent vmess-over-cloudflared on 1081,
+          # rebuilt whenever the published hostname changes. Real
+          # end-to-end traffic (not a TCP ping) decides health.
+          start_monitor() {
+            _h="$1"
+            UUID="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0]['users'][0]['uuid'])")"
+            printf '{"log":{"level":"error"},"inbounds":[{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":1081}],"outbounds":[{"type":"vmess","tag":"out","server":"%s","server_port":443,"uuid":"%s","alterId":0,"tls":{"enabled":true,"server_name":"%s"},"transport":{"type":"ws","path":"/ipnet","headers":{"Host":"%s"}}}]}' "$_h" "$UUID" "$_h" "$_h" > /tmp/sb-monitor.json
+            pkill -f sb-monitor.json 2>/dev/null || true
+            sleep 1
+            /tmp/sing-box run -c /tmp/sb-monitor.json > /tmp/sb-monitor.log 2>&1 &
+            echo "$_h" > /tmp/sbmon.ep
+            sleep 2
+            echo "monitor (re)started on 1081 -> $_h"
           }
-          ygg_publish() {
-            # refresh ss_ygg_url.txt from the live node; republish on change.
-            # Publish ONLY while peered - never broadcast an unroutable ghost.
-            if ! yggdrasilctl -endpoint tcp://127.0.0.1:9001 getPeers 2>/dev/null | grep -q " Up "; then
-              echo "ygg not peered - publish skipped (file keeps last value)"
+          vmess_alive() {
+            curl -s --max-time 10 --socks5-hostname 127.0.0.1:1081 http://httpbin.org/ip >/dev/null 2>&1 && return 0
+            curl -s --max-time 10 --socks5-hostname 127.0.0.1:1081 http://ipinfo.io/ip >/dev/null 2>&1 && return 0
+            return 1
+          }
+          restart_tunnel() {
+            # New quick tunnel = new random hostname. Old one stays briefly
+            # (cloudflared keeps serving until killed + edge drains), the
+            # client follows the republished file within a minute.
+            echo "RESTARTING cloudflared tunnel ..."
+            kill $(cat /tmp/cf.pid) 2>/dev/null || true
+            sleep 2
+            rm -f /tmp/cf.log
+            cloudflared tunnel --url http://localhost:10086 > /tmp/cf.log 2>&1 &
+            echo $! > /tmp/cf.pid
+            CF_NEW=""
+            for _w in $(seq 1 12); do
+              sleep 10
+              CF_NEW=$(grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" /tmp/cf.log 2>/dev/null | head -1 | sed 's|https://||')
+              if [ -n "$CF_NEW" ]; then break; fi
+              echo "new tunnel URL not yet published ($_w/12) ..."
+            done
+            if [ -z "$CF_NEW" ]; then
+              echo "new tunnel failed - keeping old endpoint file"
+              cat /tmp/cf.log || true
               return 1
             fi
-            _ip=$(yggdrasilctl -endpoint tcp://127.0.0.1:9001 getSelf 2>/dev/null | grep -v "/64" | grep -oE "[23][0-9a-f]{2}:[0-9a-f:]+:[0-9a-f]+" | head -1)
-            [ -z "$_ip" ] && return 1
-            _cur="[${_ip}]:8388"
-            if [ "$(cat ss_ygg_url.txt 2>/dev/null)" != "$_cur" ]; then
-              echo "$_cur" > ss_ygg_url.txt
-              push_urls "ygg-republish"
-              echo "YGG endpoint (re)published: $_cur"
-            fi
+            echo "$CF_NEW" > cf_vmess.txt
+            echo "new tunnel: $CF_NEW"
             return 0
           }
-          # Mid-run churn detector: same key => same mesh IP, ALWAYS.
-          _ygg_birth="$(cat ss_ygg_url.txt 2>/dev/null | tr -d ' \r\n')"
-          _ygg_churn_warned=0
+          start_monitor "$(cat cf_vmess.txt 2>/dev/null | tr -d ' \r\n')"
+          fail_cf=0; _trouble=0
           for i in $(seq 1 600); do
             echo "[$i/600] $(date -u) - alive"
             # --- generational handover (first iteration only) ---
-            # Old run keeps serving while this run prepared + published its
-            # own endpoint. Now: retire older runs, then REPUBLISH our own
-            # files so no stale content can point at the dying generation.
             if [ "$i" -eq 1 ]; then
               for _rid in $(gh run list --repo "$GITHUB_REPOSITORY" \
                   --workflow proxy.yml --status in_progress --limit 10 \
                   --json databaseId -q '.[].databaseId' 2>/dev/null); do
                 if [ -n "$_rid" ] && [ "$_rid" -lt "$GITHUB_RUN_ID" ] 2>/dev/null; then
-                  echo "retiring older run $_rid (our endpoint verified+published) ..."
+                  echo "retiring older run $_rid (our tunnel verified+published) ..."
                   gh run cancel "$_rid" --repo "$GITHUB_REPOSITORY" || true
                 fi
               done
-              ygg_publish || true
               push_urls "handover"
               echo "HANDOVER: predecessors retired, own endpoint republished."
             fi
-            echo "YGG: $(cat ss_ygg_url.txt 2>/dev/null || echo none)"
-            if kill -0 $(cat /tmp/ss.pid) 2>/dev/null; then echo "pids: ss=ok"; else echo "pids: ss=DEAD"; fi
-            (ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | grep -q ":8388" && echo "ss listen ok" || echo "ss listen DEAD"
-            _ygg_st=$(ygg_check) && echo "ygg node: $_ygg_st" || echo "ygg node: dead"
-            if [ "$_ygg_st" != "dead" ]; then ygg_publish || echo "ygg publish skipped"; fi
-            _ycur="$(cat ss_ygg_url.txt 2>/dev/null | tr -d ' \r\n')"
-            if [ "$_ygg_churn_warned" -eq 0 ] && [ -n "$_ygg_birth" ] \
-              && [ -n "$_ycur" ] && [ "$_ycur" != "$_ygg_birth" ]; then
-              _ygg_churn_warned=1
-              echo "WARNING: YGG endpoint changed MID-RUN "
-              echo "  birth: $_ygg_birth"
-              echo "  now:   $_ycur"
-              echo "  (identity churn - client mesh routes must reconverge!)"
-              echo "### YGG_CHURN: endpoint changed mid-run!" >> $GITHUB_STEP_SUMMARY
+            CF_HOST="$(cat cf_vmess.txt 2>/dev/null | tr -d ' \r\n')"
+            echo "CLOUDFLARE: ${CF_HOST:-none}"
+            _pids=""
+            for svc in "ss:/tmp/ss.pid" "cf:/tmp/cf.pid"; do
+              name=$(echo $svc | cut -d: -f1); pidf=$(echo $svc | cut -d: -f2)
+              if kill -0 $(cat $pidf) 2>/dev/null; then _pids="$_pids $name=ok"; else _pids="$_pids $name=DEAD"; fi
+            done
+            if pgrep -f sb-monitor.json >/dev/null 2>&1; then _pids="$_pids sbmon=ok"; else _pids="$_pids sbmon=DEAD"; fi
+            echo "pids:$_pids"
+            (ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | grep -q ":10086" && echo "vmess listen ok" || { echo "vmess listen DEAD"; _trouble=1; }
+            # Rebuild the monitor if it died or the hostname changed.
+            if ! pgrep -f sb-monitor.json >/dev/null 2>&1 \
+              || [ "$(cat /tmp/sbmon.ep 2>/dev/null)" != "$CF_HOST" ]; then
+              [ -n "$CF_HOST" ] && start_monitor "$CF_HOST"
             fi
-            # --- mesh leg: traffic test, auto-heal (restart node, same key) ---
-            # (process-alive is NOT enough: the mesh can stall while the
-            # daemon runs. Same key on restart => same mesh IP.)
-            _yep="$(cat ss_ygg_url.txt 2>/dev/null | tr -d ' \r\n')"
-            _ygg_bad=0
-            if [ -n "$_yep" ]; then
-              # one persistent monitor (1083); (re)started only if its own
-              # process died OR the published ygg endpoint changed
-              if ! pgrep -f sb-yggmon.json >/dev/null 2>&1 \
-                || [ "$(cat /tmp/sb-yggmon.ep 2>/dev/null)" != "$_yep" ]; then
-                _yh="$(echo "$_yep" | sed 's/^\[//;s/\].*//')"
-                _yp="$(echo "$_yep" | sed 's/.*\]://')"
-                printf '{"log":{"level":"error"},"inbounds":[{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":1083}],"outbounds":[{"type":"shadowsocks","tag":"out","server":"%s","server_port":%s,"method":"aes-256-gcm","password":"X5_Secure_2026!Strong"}]}' "$_yh" "$_yp" > /tmp/sb-yggmon.json
-                /tmp/sing-box run -c /tmp/sb-yggmon.json > /tmp/sb-yggmon.log 2>&1 &
-                sleep 2
-                echo "$_yep" > /tmp/sb-yggmon.ep
-                echo "ygg monitor (re)started on 1083"
-              fi
-              if curl -s --max-time 10 --socks5-hostname 127.0.0.1:1083 http://httpbin.org/ip >/dev/null 2>&1 \
-                || curl -s --max-time 10 --socks5-hostname 127.0.0.1:1083 http://ipinfo.io/ip >/dev/null 2>&1; then
-                echo "public YGG end-to-end ok"
-              else
-                _ygg_bad=1
-                echo "public YGG end-to-end FAIL - restarting mesh node (same key) ..."
-                sudo pkill -f "yggdrasil -useconffile" 2>/dev/null || true
-                sleep 2
-                sudo nohup yggdrasil -useconffile ygg-node/ygg.conf > /tmp/ygg.log 2>&1 &
-                sleep 15
-                ygg_publish || echo "ygg republish skipped"
-                echo "ygg node restarted after traffic failure"
-              fi
+            if vmess_alive; then
+              echo "public vmess end-to-end ok"; fail_cf=0
             else
-              _ygg_bad=1
-              echo "no ygg endpoint published - mesh down"
+              echo "public vmess end-to-end FAIL ($((fail_cf+1)))"; fail_cf=$((fail_cf+1)); _trouble=1
+            fi
+            # --- auto-heal on FIRST failure: fresh tunnel + republish ---
+            if [ "$fail_cf" -ge 1 ]; then
+              if restart_tunnel; then
+                CF_HOST="$(cat cf_vmess.txt 2>/dev/null | tr -d ' \r\n')"
+                start_monitor "$CF_HOST"
+                if vmess_alive; then
+                  push_urls "heal"
+                  echo "HEALED: new tunnel $CF_HOST verified end-to-end"
+                else
+                  echo "new tunnel up but traffic dead - will retry next round"
+                fi
+              else
+                echo "tunnel restart failed - will retry next round"
+              fi
+              fail_cf=0
             fi
             # Diagnostics ONLY on trouble (healthy loops stay one screen).
-            if [ "$_ygg_bad" -eq 1 ]; then
+            if [ "$_trouble" -eq 1 ]; then
+              _trouble=0
               echo "--- ss.log tail ---"; tail -5 /tmp/ss.log || true
-              echo "--- ygg.log tail ---"; tail -10 /tmp/ygg.log || true
-              echo "--- sb-yggmon.log tail ---"; tail -5 /tmp/sb-yggmon.log || true
+              echo "--- cf.log tail ---"; tail -10 /tmp/cf.log || true
+              echo "--- sb-monitor.log tail ---"; tail -5 /tmp/sb-monitor.log || true
             fi
             sleep 20
           done
