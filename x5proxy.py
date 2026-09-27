@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.5.9"
+APP_VERSION = "v1.5.10"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -1729,8 +1729,23 @@ def run_terminal(cfg):
                                      flush=True)
                         if not _rok and time.time() - _ygg_last_reach_log > 300:
                             _ygg_last_reach_log = time.time()
+                            # Node self-diagnostic on the FAIL line: peers=-1
+                            # means our own node is blind; peers>=1 with no
+                            # route means DHT hasn't converged to the server
+                            # key yet (time), not a dead server.
+                            try:
+                                _up = ygg_peers_up(ygg_exe) if ygg_exe else -1
+                            except Exception:
+                                _up = -1
+                            try:
+                                _me = ygg_node_ip(ygg_exe) if (
+                                    ygg_exe and ygg_node
+                                    and ygg_node.poll() is None) else ""
+                            except Exception:
+                                _me = ""
                             slog(f"[ygg-probe] mesh TCP {ygg_ep}: FAIL "
-                                 f"({_rwhy}) - bore serves, retry later.",
+                                 f"({_rwhy}; node peers={_up} "
+                                 f"me={_me or '?'}) - bore serves, retry later.",
                                  flush=True)
                     else:
                         slog(f"[ygg-probe] mesh TCP open, testing traffic "
