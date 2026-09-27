@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.5.8"
+APP_VERSION = "v1.5.9"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -1538,22 +1538,9 @@ def run_terminal(cfg):
     Every decision is logged literally ([net]/[ygg]/[bore]/[switch]/[check]).
     Raises RuntimeError if the repo/endpoint is unusable -> GUI reopens."""
     free_local_port()
-    # Admin FIRST (before any tunnel/browser): the mesh leg needs the TUN
-    # interface, which Windows only grants elevated. One UAC prompt on
-    # first launch; a decline is remembered (bore continues, never ask
-    # again). Elevated copy takes over; this window closes.
-    if os.name == "nt" and not is_admin() and not ELEVATED \
-            and not cfg.get("noAdmin"):
-        slog("[admin] requesting elevation for full speed (mesh TUN) ...",
-             flush=True)
-        if try_elevate("startup"):
-            return
-        cfg["noAdmin"] = True
-        try:
-            save_config(cfg)
-        except Exception:
-            pass
-        slog("[admin] noted: won't ask again (bore continues).", flush=True)
+    # NOTE: elevation happens in main() BEFORE any window (single UAC at
+    # launch, single Start click). By the time we are here the process
+    # is already elevated (or non-Windows). No second prompt, ever.
     exe = ensure_singbox()
     ygg_exe = ensure_yggdrasil()
     ygg_node = start_ygg_node(ygg_exe) if ygg_exe else None
@@ -1880,6 +1867,26 @@ def main():
             os.remove(config_path())
         except Exception:
             pass
+    # Elevation FIRST, before ANY window (Windows): the mesh leg needs
+    # the TUN interface, which Windows only grants elevated. Flow:
+    #   double-click -> console asks for admin -> UAC pops ->
+    #   Allow: the elevated copy continues into setup (ONE Start click);
+    #          this window closes itself.
+    #   Deny:  the program EXITS (no half-running copy without mesh).
+    if os.name == "nt" and not is_admin() and not ELEVATED:
+        slog("[admin] IPNET needs administrator (mesh driver) - "
+             "one UAC click ...", flush=True)
+        launched = try_elevate("startup")
+        if launched:
+            slog("[admin] elevated copy starting - this window closes.",
+                 flush=True)
+        else:
+            slog("[admin] elevation declined - exiting.", flush=True)
+        try:
+            input("Press Enter to close ...")
+        except Exception:
+            pass
+        sys.exit(0 if launched else 1)
     try:
         # Same screen on EVERY launch, prefilled with the last saved link.
         while True:
