@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.5.3"
+APP_VERSION = "v1.5.4"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -1389,6 +1389,7 @@ def run_terminal(cfg):
     tun_log = None
     transport = "bore"  # active leg; ygg preferred whenever it proves itself
     cur = {"bore": "", "ygg": ""}
+    logged = {"bore": "", "ygg": ""}  # last endpoint values already printed
     dead = 0
     _ygg_last_try = time.time()  # startup already tried once above
     client_cfg = os.path.join(app_dir(), "sb-client.json")
@@ -1453,7 +1454,8 @@ def run_terminal(cfg):
                     slog(f"[net] bore endpoint via SHA-pin (CDN was stale): {_pe}",
                          flush=True)
                     name_b, bore_ep = _pn, _pe
-            if bore_ep != cur["bore"]:
+            if bore_ep != logged["bore"]:
+                logged["bore"] = bore_ep
                 slog(f"[net] bore endpoint: '{cur['bore'] or 'none'}' -> "
                      f"'{bore_ep or 'none'}' (source: {name_b or 'unpublished'}).",
                      flush=True)
@@ -1467,7 +1469,8 @@ def run_terminal(cfg):
                         slog(f"[net] ygg endpoint via SHA-pin (CDN was stale): {_pe}",
                              flush=True)
                         name_y, ygg_ep = "ss_ygg_url.txt", _pe
-                if ygg_ep != cur["ygg"]:
+                if ygg_ep != logged["ygg"]:
+                    logged["ygg"] = ygg_ep
                     slog(f"[net] ygg endpoint: '{cur['ygg'] or 'none'}' -> "
                          f"'{ygg_ep or 'none'}'.", flush=True)
             elif ygg_exe:
@@ -1482,6 +1485,13 @@ def run_terminal(cfg):
                              flush=True)
             # ---- 2) desired leg: ygg whenever it exists, else bore ----
             desired = ("ygg" if ygg_ep else "bore")
+            # Adopt the freshest known values silently for the IDLE leg, so
+            # failover always jumps to something current (and the [net] log
+            # above fires once per real change instead of every loop).
+            if desired != "bore" and bore_ep:
+                cur["bore"] = bore_ep
+            if desired != "ygg" and ygg_ep:
+                cur["ygg"] = ygg_ep
             want = {"bore": bore_ep, "ygg": ygg_ep}[desired]
             if not want:
                 fails += 1
