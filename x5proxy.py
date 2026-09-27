@@ -28,13 +28,77 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.5.1"
+APP_VERSION = "v1.5.2"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
 SB_VERSION = "1.14.2"
 SS_METHOD = "aes-256-gcm"
 LOCAL_SOCKS_PORT = 1080
+# Endpoint hysteresis: an endpoint that just failed is not trusted again
+# until this cooldown passes (kills flip-flop storms when two server
+# generations overwrite the same file back and forth).
+BAD_EP_COOLDOWN = 180
+_bad_until = {}
+
+
+def mark_bad(ep):
+    _bad_until[ep] = time.time() + BAD_EP_COOLDOWN
+
+
+def is_bad(ep):
+    try:
+        if _bad_until.get(ep, 0) > time.time():
+            return True
+        _bad_until.pop(ep, None)
+        return False
+    except Exception:
+        return False
+
+
+def is_admin():
+    """True if this process is elevated (Windows) / root (posix)."""
+    try:
+        if os.name == "nt":
+            import ctypes
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        return os.geteuid() == 0
+    except Exception:
+        return False
+
+
+def elevated_cmd():
+    """Argv that re-runs THIS app elevated (Windows runas). Pure builder."""
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "--elevated"]
+    return [sys.executable, os.path.abspath(__file__), "--elevated"]
+
+
+def try_elevate(reason):
+    """Relaunch self with admin rights (one UAC prompt). Returns True if
+    the elevated copy was launched (caller must exit). Pure stdlib."""
+    if os.name != "nt":
+        return False
+    try:
+        cmd = elevated_cmd()
+        ps = ("Start-Process -FilePath '" + cmd[0].replace("'", "''") + "'"
+              + (" -ArgumentList '" + " ".join(
+                  a.replace("'", "''") for a in cmd[1:]) + "'"
+                 if len(cmd) > 1 else "")
+              + " -Verb RunAs -PassThru")
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+            capture_output=True, text=True, timeout=60)
+        if out.returncode == 0:
+            slog(f"[admin] elevated copy launched ({reason}) - "
+                 "this window will close.", flush=True)
+            return True
+        slog("[admin] elevation declined/failed - continuing unelevated.",
+             flush=True)
+    except Exception as e:
+        slog(f"[admin] elevation failed: {e} - continuing unelevated.",
+             flush=True)
+    return False
 # Yggdrasil (second transport, preferred when usable; bore stays fallback).
 YGG_VERSION = "0.5.14"
 YGG_MSI_URL = ("https://github.com/yggdrasil-network/yggdrasil-go/releases/"
@@ -44,6 +108,9 @@ YGG_PEERS = ("tls://mn.us.ygg.triplebit.org:993",
              "tls://ygg.mnpnk.com:443")
 YGG_ADMIN = "tcp://127.0.0.1:9001"
 YGG_SS_PORT = 8388
+
+
+ELEVATED = "--elevated" in sys.argv
 
 
 def slog(*args, **kwargs):
@@ -1263,6 +1330,22 @@ def run_terminal(cfg):
     exe = ensure_singbox()
     ygg_exe = ensure_yggdrasil()
     ygg_node = start_ygg_node(ygg_exe) if ygg_exe else None
+    if not ygg_node and ygg_exe and not is_admin() and not ELEVATED \
+            and not cfg.get("noAdmin"):
+        hint = ygg_exit_hint()
+        if "admin" in hint.lower():
+            slog("[admin] mesh needs one-time elevation - asking now ...",
+                 flush=True)
+            stop_ygg_node()
+            if try_elevate("mesh TUN driver"):
+                return  # elevated copy takes over; this window closes
+            cfg["noAdmin"] = True
+            try:
+                save_config(cfg)
+            except Exception:
+                pass
+            slog("[admin] noted: won't ask again (bore continues).",
+                 flush=True)
     if ygg_node:
         up = ygg_peers_up(ygg_exe)
         slog(f"[ygg] mesh peerings up: {up if up >= 0 else 'unknown'} "
@@ -1314,7 +1397,11 @@ def run_terminal(cfg):
         ok, reason = check_tunnel()
         planned = "planned, no downtime" if dead == 0 else "healing"
         slog(f"[switch] -> {which} {ep} ({why}; {planned}; "
-             f"check: {'OK' if ok else 'FAIL: ' + reason}).", flush=True)
+              f"check: {'OK' if ok else 'FAIL: ' + reason}).", flush=True)
+        if ok:
+            _bad_until.pop(ep, None)  # forgiven: it works
+        else:
+            mark_bad(ep)  # don't chase it again until cooldown expires
         return ok
 
     try:
@@ -1364,7 +1451,19 @@ def run_terminal(cfg):
                 continue
             fails = 0
             # ---- 3) switch when leg or endpoint changed ----
-            if desired != transport or want != cur[transport]:
+            # Hysteresis: never jump into an endpoint that failed minutes
+            # ago (two server generations flip-flopping the same file would
+            # otherwise bounce us dead-alive-dead). Adopt silently instead.
+            do_switch = True
+            if (desired != transport or want != cur[transport]) \
+                    and is_bad(want):
+                left = int(_bad_until.get(want, 0) - time.time())
+                slog(f"[net] {desired} endpoint {want} failed {left}s ago - "
+                     f"skipping switch for {max(left, 0)}s (staying on "
+                     f"{transport}).", flush=True)
+                cur[desired] = want  # adopt quietly, log once
+                do_switch = False
+            if do_switch and (desired != transport or want != cur[transport]):
                 if desired != transport:
                     why = (f"prefer {desired} ("
                            + ("ygg proven, stable" if desired == "ygg"
@@ -1415,6 +1514,7 @@ def run_terminal(cfg):
                     if dead:
                         slog("[check] traffic flows again.", flush=True)
                     dead = 0
+                    _bad_until.pop(cur[transport], None)
                 else:
                     dead += 1
                     # Instant failover: the other leg may already be fine.
