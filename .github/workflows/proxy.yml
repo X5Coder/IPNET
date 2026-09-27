@@ -97,13 +97,20 @@ jobs:
           sudo dpkg -i /tmp/ygg.deb
           yggdrasil --version
           mkdir -p ygg-node
-          # Stable per-repo identity: generated ONCE, committed back to the
-          # repo, reused by every later run. Same key => same mesh IP
-          # forever (phone configured once, DHT entries persist, no fresh-
-          # key convergence delay each run). The key is public in the repo -
-          # same posture as the public ss password: anyone may use the
-          # proxy; worst case is impersonation noise, not data theft
-          # (Shadowsocks encryption is a separate layer).
+          # Overlapping generations (cron every 4h, runs live ~5h) check
+          # out BEFORE the predecessor commits its key, so every run
+          # minted a fresh key and the mesh IP churned each generation
+          # (observed: 'create mode ygg-node/ygg.conf' twice in a row -
+          # and DHT routes can never converge to a moving target).
+          # Adopt the latest COMMITTED key first: narrows the race to
+          # seconds and keeps ONE stable identity across generations.
+          git fetch origin main --depth 1 2>/dev/null || true
+          git checkout origin/main -- ygg-node/ygg.conf 2>/dev/null || true
+          # Key posture (unchanged): the key is public in the repo - same
+          # as the public ss password. Anyone may use the proxy; worst
+          # case is impersonation noise, not data theft (Shadowsocks
+          # encryption is a separate layer). Same key => same mesh IP
+          # forever (phone configured once, DHT entries persist).
           if [ ! -f ygg-node/ygg.conf ]; then
             (cd ygg-node && yggdrasil -genconf > ygg.conf)
             python3 - <<'EOF'

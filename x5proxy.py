@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.5.10"
+APP_VERSION = "v1.5.11"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -951,6 +951,65 @@ def ygg_exit_hint():
     return ""
 
 
+def kill_other_managers():
+    """Single-manager guard: never share the machine with another copy.
+
+    Two IPNET managers (the classic case: an old version still running
+    elevated) wage war forever: each kills the other's ygg node, both
+    fight over :1080 so both tunnels flap, and the log fills with
+    'died - restarted'. The NEW copy wins: any other IPNET* binary, or
+    any python running THIS script (except this process), is closed
+    first; orphaned nodes are reaped by start_ygg_node afterwards.
+    Runs ONCE at startup (after elevation), never in-loop."""
+    if os.name != "nt":
+        return
+    me = os.getpid()
+    try:
+        script = os.path.basename(os.path.abspath(__file__))
+        pat = re.compile(r"[\\/]" + re.escape(script) + r"(?=[\"'\s]|$)",
+                         re.IGNORECASE)
+    except Exception:
+        return
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+             "Get-CimInstance Win32_Process | Where-Object { $_.Name -like "
+             "'IPNET*' -or $_.Name -eq 'python.exe' -or $_.Name -eq "
+             "'pythonw.exe' } | ForEach-Object { \"{0}|{1}|{2}\" -f "
+             "$_.ProcessId, $_.Name, $_.CommandLine }"],
+            capture_output=True, text=True, timeout=30)
+    except Exception as e:
+        slog(f"[mgr] single-instance scan skipped: {e}", flush=True)
+        return
+    for line in (out.stdout or "").splitlines():
+        parts = line.strip().split("|", 2)
+        if len(parts) != 3:
+            continue
+        pid_s, name, cmd = parts
+        if not pid_s.strip().isdigit():
+            continue
+        pid = int(pid_s.strip())
+        if pid == me:
+            continue
+        nl = name.strip().lower()
+        # Frozen copies match by name; script copies match only when OUR
+        # file is the actual script (path separator required, so a mere
+        # mention inside some -c snippet never matches).
+        mine = nl.startswith("ipnet") or (
+            nl.startswith("python") and bool(pat.search(cmd or "")))
+        if not mine:
+            continue
+        try:
+            subprocess.run(["taskkill", "/F", "/PID", str(pid)],
+                           capture_output=True, timeout=10)
+            slog(f"[mgr] closed duplicate manager: {name.strip()}({pid}) "
+                 f"- single copy from here.", flush=True)
+        except Exception:
+            slog(f"[mgr] could not close {name.strip()}({pid}) - close it "
+                 f"manually (Task Manager as admin).", flush=True)
+    time.sleep(3)  # let ports settle before binding
+
+
 def clear_port_owner(port=9001):
     """Free 127.0.0.1:<port> from OUR OWN squatters before binding.
 
@@ -1620,6 +1679,21 @@ def run_terminal(cfg):
         stop_tunnel(proc, tun_log)
         proc, tun_log = start_tunnel(exe, client_cfg)
         time.sleep(2)
+        if proc.poll() is not None:
+            # Died at once (a second manager squatting :1080 is the
+            # classic): dump the tunnel-log tail so the cause is
+            # visible instead of looping blind.
+            try:
+                with open(tunnel_log_path(), "r", encoding="utf-8",
+                          errors="ignore") as _lf:
+                    _tail = _lf.read()[-400:]
+                slog(f"[switch] {which} tunnel died at once "
+                     f"(exit {proc.poll()}); log tail: {_tail}", flush=True)
+            except Exception:
+                slog(f"[switch] {which} tunnel died at once "
+                     f"(exit {proc.poll()}).", flush=True)
+            mark_bad(ep)
+            return False
         ok, reason = check_tunnel()
         planned = "planned, no downtime" if dead == 0 else "healing"
         slog(f"[switch] -> {which} {ep} ({why}; {planned}; "
@@ -1827,10 +1901,11 @@ def run_terminal(cfg):
                           "window (no new window).", flush=True)
                 first_run = False
             if proc and proc.poll() not in (None, 0):
+                _code = proc.poll()
                 stop_tunnel(proc, tun_log)
                 proc, tun_log = start_tunnel(exe, client_cfg)
-                slog(f"[tunnel] local sing-box died - restarted on {transport}.",
-                     flush=True)
+                slog(f"[tunnel] local sing-box died (exit {_code}) - "
+                     f"restarted on {transport}.", flush=True)
             # --- client-side healing: does traffic REALLY flow? ---
             # (TCP to bore.pub is not enough: the tunnel can be up while
             # the server-side proxy refuses everything -> ERROR flood.)
@@ -1849,19 +1924,24 @@ def run_terminal(cfg):
                 else:
                     dead += 1
                     # Instant failover: the other leg may already be fine.
+                    # transport flips ONLY on success: switch_to may SKIP
+                    # (ygg pre-gate) or FAIL while the old tunnel still
+                    # serves - relabeling it corrupts every later decision
+                    # (observed: 'restarted on ygg' while serving bore).
                     other = "ygg" if transport == "bore" else "bore"
                     if cur[other]:
                         slog(f"[failover] {transport} dead - trying {other} "
                              f"{cur[other]} now ...", flush=True)
-                        # Leaving a dead mesh leg: it must RE-prove itself
-                        # via background probe before taking over again -
-                        # otherwise the next loop would jump straight back
-                        # into the same dead endpoint.
-                        if transport == "ygg":
-                            ygg_proven = False
-                        transport = other
                         if switch_to(other, cur[other], "failover"):
+                            if transport == "ygg":
+                                # Leaving a dead mesh leg: it must RE-prove
+                                # via background probe, never jump straight
+                                # back into the same dead endpoint.
+                                ygg_proven = False
+                            transport = other
                             dead = 0
+                        elif other == "ygg":
+                            ygg_proven = False
                     elif transport == "ygg":
                         ygg_proven = False
                     # Follow-only: the workflow heals itself on FIRST failure and
@@ -1902,6 +1982,8 @@ def main():
         except Exception:
             pass
         sys.exit(0 if launched else 1)
+    # One manager per machine (old copies wage node-killing wars).
+    kill_other_managers()
     try:
         # Same screen on EVERY launch, prefilled with the last saved link.
         while True:
