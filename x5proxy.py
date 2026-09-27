@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v2.0.0"
+APP_VERSION = "v2.0.1"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
