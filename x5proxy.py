@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.5.11"
+APP_VERSION = "v1.5.12"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -1624,7 +1624,10 @@ def run_terminal(cfg):
     tun_log = None
     transport = "bore"  # active leg; ygg takes over only after it PROVES itself
     ygg_proven = False  # set True on first end-to-end OK via mesh; reset on fail
-    _ygg_probe_cool = 0.0  # next allowed background-probe timestamp
+    _ygg_cool_until = 0.0  # next allowed ygg attempt (probe OR failover).
+    # Any ygg failure/skip pushes this +120s: without it the dead-loop
+    # burns 12s (mesh TCP timeout) EVERY 5s iteration and starves bore
+    # healing - the exact deadlock seen in the wild (dead streak 21+).
     cur = {"bore": "", "ygg": ""}
     logged = {"bore": "", "ygg": ""}  # last endpoint values already printed
     skip_logged = ""  # last bad endpoint we warned about (warn once)
@@ -1658,7 +1661,7 @@ def run_terminal(cfg):
 
     def switch_to(which, ep, why):
         """Rebuild local sing-box for (which, ep) and restart the tunnel."""
-        nonlocal proc, tun_log, ygg_proven
+        nonlocal proc, tun_log, ygg_proven, _ygg_cool_until
         host, port = split_endpoint(ep)
         if not host or not port:
             slog(f"[switch] {why}: BAD endpoint '{ep}' - skipped.", flush=True)
@@ -1671,6 +1674,7 @@ def run_terminal(cfg):
                 slog(f"[switch] ygg {ep}: skipped ({_why}) - bore untouched.",
                      flush=True)
                 mark_bad(ep)
+                _ygg_cool_until = time.time() + 120
                 return False
         ccfg = build_client_cfg(host, port, cfg.get("method", SS_METHOD),
                                 cfg["password"])
@@ -1707,6 +1711,7 @@ def run_terminal(cfg):
             mark_bad(ep)  # don't chase it again until cooldown expires
             if which == "ygg":
                 ygg_proven = False
+                _ygg_cool_until = time.time() + 120
         return ok
 
     try:
@@ -1757,26 +1762,32 @@ def run_terminal(cfg):
             # attempt = ~4s downtime + flip-flop storms. Now: bore serves
             # until a background probe on port 1089 proves the mesh leg
             # end-to-end; only then does ygg become desired.
-            # Adopt the freshest known values silently for the IDLE leg, so
-            # failover always jumps to something current (and the [net] log
-            # above fires once per real change instead of every loop).
-            # Gated on proc: before the first tunnel exists cur must stay
-            # empty, otherwise the initial switch is suppressed (want ==
-            # cur) and the healing check fires against an empty port.
+            # Adopt the freshest known values silently for the IDLE leg ONLY,
+            # so failover always jumps to something current (and the [net]
+            # log above fires once per real change instead of every loop).
+            # Two gates, both load-bearing:
+            #  - proc exists (before the first tunnel cur must stay empty,
+            #    otherwise the initial switch is suppressed and the healing
+            #    check fires against an empty port);
+            #  - NEVER adopt the ACTIVE leg (adopting cur[bore] while
+            #    serving bore makes want == cur forever, so endpoint
+            #    renewals never switch and the client rots on a dead
+            #    tunnel while fresh endpoints stream by - the exact
+            #    deadlock observed in the wild).
             if proc is not None:
-                if bore_ep:
+                if transport != "bore" and bore_ep:
                     cur["bore"] = bore_ep
-                if ygg_ep:
+                if transport != "ygg" and ygg_ep:
                     cur["ygg"] = ygg_ep
             if ygg_ep and (ygg_proven or transport == "ygg"):
                 desired = "ygg"
             elif ygg_ep and transport == "bore" and not ygg_proven \
                     and not is_bad(ygg_ep) and dead == 0 \
                     and proc is not None \
-                    and time.time() >= _ygg_probe_cool:
+                    and time.time() >= _ygg_cool_until:
                 # Background probe: temp sing-box on 1089, live bore on
-                # 1080 untouched. Throttled to once/60s.
-                _ygg_probe_cool = time.time() + 60
+                # 1080 untouched. Throttled by the unified ygg cooldown.
+                _ygg_cool_until = time.time() + 120
                 _yh, _yp = split_endpoint(ygg_ep)
                 if _yh and _yp:
                     _rok, _rwhy = ygg_mesh_reachable(_yh, _yp)
@@ -1928,8 +1939,13 @@ def run_terminal(cfg):
                     # (ygg pre-gate) or FAIL while the old tunnel still
                     # serves - relabeling it corrupts every later decision
                     # (observed: 'restarted on ygg' while serving bore).
+                    # Ygg attempts also respect the unified cooldown: a
+                    # mesh TCP timeout costs 12s, and retrying it every 5s
+                    # loop starves bore healing (the dead-streak-21+ trap).
                     other = "ygg" if transport == "bore" else "bore"
-                    if cur[other]:
+                    if other == "ygg" and time.time() < _ygg_cool_until:
+                        pass  # mesh cooling down: heal bore instead, retry later
+                    elif cur[other]:
                         slog(f"[failover] {transport} dead - trying {other} "
                              f"{cur[other]} now ...", flush=True)
                         if switch_to(other, cur[other], "failover"):
