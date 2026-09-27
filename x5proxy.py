@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.6.1"
+APP_VERSION = "v1.6.2"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -1035,6 +1035,35 @@ def clear_port_owner(port=9001):
     return killed
 
 
+def ygg_tun_status():
+    """Windows TUN adapter check (the DATA plane).
+
+    Peers can show 'Up' while mesh data is impossible: peer links are
+    plain TLS over ethernet, but every mesh byte (DHT sessions, TCP to
+    the server) must cross the wintun adapter. If the driver is broken
+    or the adapter is down, you get exactly our symptom: peerings Up,
+    everything else TimeoutError, forever. Returns (ok, detail)."""
+    if os.name != "nt":
+        return True, "non-windows (system TUN)"
+    try:
+        ps = ("Get-NetAdapter -ErrorAction SilentlyContinue | "
+              "Where-Object { $_.InterfaceDescription -like '*wintun*' -or "
+              "$_.InterfaceDescription -like '*ygg*' -or "
+              "$_.Name -like '*ygg*' } | ForEach-Object { "
+              "\"{0}|{1}|{2}\" -f $_.Name, $_.Status, "
+              "$_.InterfaceDescription }")
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+            capture_output=True, text=True, timeout=20)
+        lines = [l.strip() for l in (out.stdout or "").splitlines()
+                 if "|" in l]
+        if not lines:
+            return False, "no wintun/ygg adapter found"
+        return True, "; ".join(lines)
+    except Exception as e:
+        return False, f"adapter scan skipped: {e}"
+
+
 def start_ygg_node(exe):
     """Start our mesh node (stable identity kept in ygg.conf). Returns proc
     or None. No TUN needed for the daemon itself; packet flow needs the
@@ -1135,6 +1164,12 @@ def start_ygg_node(exe):
             return None
         ip = ygg_node_ip(exe)
         slog(f"[ygg] node up. our mesh ip: {ip or 'unknown yet'}", flush=True)
+        _tun_ok, _tun = ygg_tun_status()
+        slog(f"[ygg] TUN adapter: {'present' if _tun_ok else 'MISSING'} "
+             f"({_tun})" + ("" if _tun_ok else
+             " - mesh DATA cannot flow while this is missing (peers may "
+             "still show Up); reinstall Yggdrasil / check the wintun driver."),
+             flush=True)
         return _ygg_proc
     except Exception as e:
         slog(f"[ygg] node start failed: {e}", flush=True)
@@ -1584,8 +1619,21 @@ def run_terminal(cfg):
         # unroutable ghost IP. Raw TCP via the TUN must open first.
         _ok, _why = ygg_mesh_reachable(host, port)
         if not _ok:
-            slog(f"[switch] mesh {ep}: skipped ({_why}) - tunnel untouched.",
-                 flush=True)
+            try:
+                _up = ygg_peers_up(ygg_exe) if ygg_exe else -1
+            except Exception:
+                _up = -1
+            try:
+                _me = ygg_node_ip(ygg_exe) if (
+                    ygg_exe and ygg_node
+                    and ygg_node.poll() is None) else ""
+            except Exception:
+                _me = ""
+            _tun_ok, _tun = ygg_tun_status()
+            slog(f"[switch] mesh {ep}: skipped ({_why}; node peers={_up} "
+                 f"me={_me or '?'} "
+                 f"tun={'ok' if _tun_ok else 'BROKEN:' + _tun}) - "
+                 f"tunnel untouched.", flush=True)
             mark_bad(ep)
             return False
         ccfg = build_client_cfg(host, port, cfg.get("method", SS_METHOD),
