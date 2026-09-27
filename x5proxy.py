@@ -755,12 +755,6 @@ def free_local_port():
     time.sleep(2)
 
 
-def proxy_working(timeout=12):
-    """Back-compat wrapper around check_tunnel (default local port)."""
-    ok, _ = check_tunnel(LOCAL_SOCKS_PORT, timeout)
-    return ok
-
-
 def start_tunnel(exe, client_cfg):
     """Start sing-box quietly (logs go to a file, terminal stays clean)."""
     lf = open(tunnel_log_path(), "a", encoding="utf-8")
@@ -961,6 +955,81 @@ def build_client_cfg(host, uuid):
                        "transport": {"type": "ws", "path": "/ipnet",
                                      "headers": {"Host": host}}}],
     }
+
+
+def tunnel_http_status(port=LOCAL_SOCKS_PORT, timeout=10):
+    """HTTP status of http://httpbin.org/ip through the tunnel (SOCKS5).
+    Returns int status or -1. Spots edge rate-limiting (HTTP 429 from
+    the quick-tunnel concurrency cap) that a bare CONNECT check cannot
+    see. Pure stdlib."""
+    import socket
+    s = None
+    try:
+        s = socket.create_connection(("127.0.0.1", port), timeout=timeout)
+        s.settimeout(timeout)
+        s.sendall(b"\x05\x01\x00")
+        if s.recv(2) != b"\x05\x00":
+            return -1
+        host = b"httpbin.org"
+        s.sendall(b"\x05\x01\x00\x03" + bytes([len(host)]) + host + b"\x00\x50")
+        if s.recv(10)[1] != 0x00:
+            return -1
+        s.sendall(b"GET /ip HTTP/1.1\r\nHost: httpbin.org\r\n"
+                  b"Connection: close\r\n\r\n")
+        data = b""
+        while b"\r\n" not in data and len(data) < 4096:
+            chunk = s.recv(1024)
+            if not chunk:
+                break
+            data += chunk
+        m = re.search(rb"HTTP/1\.[01]\s+(\d{3})", data)
+        return int(m.group(1)) if m else -1
+    except Exception:
+        return -1
+    finally:
+        try:
+            if s:
+                s.close()
+        except Exception:
+            pass
+
+
+def fetch_geo_via_tunnel(port=LOCAL_SOCKS_PORT, timeout=10):
+    """(country, city, ip) as seen through the tunnel, or fallbacks.
+    Shown once per successful switch so the user SEES where they exit.
+    Pure stdlib."""
+    import socket
+    s = None
+    try:
+        s = socket.create_connection(("127.0.0.1", port), timeout=timeout)
+        s.settimeout(timeout)
+        s.sendall(b"\x05\x01\x00")
+        if s.recv(2) != b"\x05\x00":
+            return "USA", "", ""
+        host = b"ipinfo.io"
+        s.sendall(b"\x05\x01\x00\x03" + bytes([len(host)]) + host + b"\x00\x50")
+        if s.recv(10)[1] != 0x00:
+            return "USA", "", ""
+        s.sendall(b"GET /json HTTP/1.1\r\nHost: ipinfo.io\r\n"
+                  b"Connection: close\r\nUser-Agent: IPNET\r\n\r\n")
+        data = b""
+        while len(data) < 8192:
+            chunk = s.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+        body = data.split(b"\r\n\r\n", 1)[1] if b"\r\n\r\n" in data else b""
+        info = json.loads(body.decode("utf-8", "ignore") or "{}")
+        return (info.get("country", "USA") or "USA",
+                info.get("city", "") or "", info.get("ip", "") or "")
+    except Exception:
+        return "USA", "", ""
+    finally:
+        try:
+            if s:
+                s.close()
+        except Exception:
+            pass
 
 
 def check_tunnel(port=LOCAL_SOCKS_PORT, timeout=12):
@@ -1245,6 +1314,7 @@ def run_terminal(cfg):
     logged_ep = ""  # last hostname value already printed
     skip_logged = ""  # last bad hostname we warned about (warn once)
     dead = 0
+    _http_tick = 0  # HTTP-429 radar counter (see healing block)
     client_cfg = os.path.join(app_dir(), "sb-client.json")
     slog("=" * 60)
     slog(f"  {APP_NAME} {APP_VERSION} - USA proxy (leave this window OPEN)")
@@ -1363,14 +1433,19 @@ def run_terminal(cfg):
                              "(no dead browser).", flush=True)
                     if alive:
                         open_chrome_once()
-                    slog("-" * 60)
-                    slog(f"PROXY ADDRESS (manual use): 127.0.0.1:{LOCAL_SOCKS_PORT} (SOCKS5 + HTTP)")
-                    slog(f"SERVER: {cf_host} (cloudflared) [leg: cf]")
-                    slog("IP: USA")
-                    slog("-" * 60, flush=True)
-                    if alive:
-                        open_chrome_once()
-                    elif chrome and chrome_opened:
+                        _cc, _city, _ip = fetch_geo_via_tunnel()
+                        slog("=" * 60)
+                        slog("  PROXY CONNECTED")
+                        slog(f"  Country : {_cc}" + (f" ({_city})" if _city else ""))
+                        slog(f"  Your IP : {_ip or 'checking...'}  (verify: https://ipleak.net/)")
+                        slog(f"  Server  : {cf_host}  (Cloudflare tunnel, VMess+WS+TLS)")
+                        slog(f"  Local   : 127.0.0.1:{LOCAL_SOCKS_PORT}  (SOCKS5 + HTTP - use in any app)")
+                        slog(f"  Repo    : {cfg['owner']}/{cfg['repo']}")
+                        slog("=" * 60, flush=True)
+                    else:
+                        slog(f"[net] switch to {cf_host} failed - retrying automatically.",
+                             flush=True)
+                    if not alive and chrome and chrome_opened:
                         slog("Endpoint renewed - using the already-open Chrome "
                               "window (no new window).", flush=True)
                     if alive or proc is not None:
@@ -1397,6 +1472,17 @@ def run_terminal(cfg):
                     dead = 0
                     _bad_until.pop(cur, None)
                     open_chrome_once()  # deferred open fires here
+                    # Edge-cap radar: a bare CONNECT cannot see HTTP 429
+                    # (quick-tunnel concurrency cap), so sample a real HTTP
+                    # status every ~4th healthy loop. On 429 the server is
+                    # already rotating - go fast-poll to follow it at once.
+                    _http_tick += 1
+                    if _http_tick >= 4:
+                        _http_tick = 0
+                        if tunnel_http_status() == 429:
+                            slog("[check] edge rate limit (HTTP 429) - "
+                                 "server is rotating, following ...", flush=True)
+                            dead = 1
                 else:
                     dead += 1
                     # No fallback exists: keep polling fast so a republished

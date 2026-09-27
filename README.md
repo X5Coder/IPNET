@@ -6,7 +6,9 @@
 
 ### 🇺🇸 USA Proxy in One Click — Your Own Private USA Network
 
-Free US server (GitHub Actions) · Windows app · Phone subscription
+Free US server (GitHub Actions + Cloudflare tunnel) · Windows app, no admin needed · Phone subscription
+
+> How it works: your server publishes a fresh random tunnel address every few hours; the app and the phone subscription follow it automatically. If a tunnel dies or hits Cloudflare's request cap, both sides heal themselves within a minute.
 
 <br>
 

@@ -135,7 +135,6 @@ jobs:
           git add cf_vmess.txt android-ss.txt sub.txt README.md || true
           git commit -m "publish cloudflared $CF_HOST" || true
           git push || true
-          date +%s > /tmp/tunnel-born
           echo "### CLOUDFLARE: $CF_HOST" >> $GITHUB_STEP_SUMMARY
 
       - name: Loopback test (VMess+WS+TLS through the public tunnel)
@@ -197,7 +196,17 @@ jobs:
             echo "monitor (re)started on 1081 -> $_h"
           }
           vmess_alive() {
-            curl -s --max-time 10 --socks5-hostname 127.0.0.1:1081 http://httpbin.org/ip >/dev/null 2>&1 && return 0
+            # HTTP status through the tunnel decides. A 429 from the edge
+            # means the quick-tunnel concurrency cap is hit: rotate NOW
+            # (proactive, ~190-style) instead of waiting for death.
+            _code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 --socks5-hostname 127.0.0.1:1081 http://httpbin.org/ip 2>/dev/null || echo "000")
+            if [ "$_code" = "429" ]; then
+              echo "edge 429 (concurrency cap) - rotating now"
+              return 1
+            fi
+            if [ "$_code" = "200" ]; then
+              return 0
+            fi
             curl -s --max-time 10 --socks5-hostname 127.0.0.1:1081 http://ipinfo.io/ip >/dev/null 2>&1 && return 0
             return 1
           }
