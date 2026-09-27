@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.6.0"
+APP_VERSION = "v1.6.1"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -1212,12 +1212,14 @@ def split_endpoint(ep):
         return "", 0
 
 
-def ygg_mesh_reachable(host, port, timeout=12):
+def ygg_mesh_reachable(host, port, timeout=30):
     """Raw TCP to [mesh-ip]:port through the local ygg TUN.
 
     Cheap pre-gate before touching the live tunnel: proves L3 mesh
-    routing exists (the old code jumped straight into rebuilding
-    sing-box on an unroutable ghost IP). Returns (ok, reason)."""
+    routing exists (jumping straight into rebuilding sing-box on an
+    unroutable ghost IP wastes everything). 30s: a first-contact DHT
+    session across continents routinely needs 10-20s; anything shorter
+    false-negatives a healthy-but-cold route. Returns (ok, reason)."""
     import socket
     s = None
     try:
@@ -1239,9 +1241,15 @@ def build_client_cfg(host, port, method, password):
         "inbounds": [{"type": "mixed", "tag": "in",
                       "listen": "127.0.0.1",
                       "listen_port": LOCAL_SOCKS_PORT}],
+        # connect_timeout 60s (not sing-box's 5s default): the FIRST
+        # Shadowsocks dial over a fresh DHT route needs session setup
+        # across continents - 5s kills it every time (observed as
+        # endless 'code 1' refusals), 60s lets the route converge once
+        # and steady-state dials stay instant.
         "outbounds": [{"type": "shadowsocks", "tag": "out",
                        "server": host, "server_port": port,
-                       "method": method, "password": password}],
+                       "method": method, "password": password,
+                       "connect_timeout": "60s"}],
     }
 
 
@@ -1602,7 +1610,10 @@ def run_terminal(cfg):
                      f"(exit {proc.poll()}).", flush=True)
             mark_bad(ep)
             return False
-        ok, reason = check_tunnel()
+        # 70s (not the 12s default): the FIRST end-to-end check over a
+        # fresh DHT route needs session setup; steady-state checks answer
+        # in <2s, so the long cap costs nothing normally.
+        ok, reason = check_tunnel(timeout=70)
         planned = "planned, no downtime" if dead == 0 else "healing"
         slog(f"[switch] -> mesh {ep} ({why}; {planned}; "
               f"check: {'OK' if ok else 'FAIL: ' + reason}).", flush=True)
@@ -1695,7 +1706,8 @@ def run_terminal(cfg):
                     elif chrome and chrome_opened:
                         slog("Endpoint renewed - using the already-open Chrome "
                               "window (no new window).", flush=True)
-                    first_run = False
+                    if alive or proc is not None:
+                        first_run = False
             if proc and proc.poll() not in (None, 0):
                 _code = proc.poll()
                 stop_tunnel(proc, tun_log)
@@ -1703,7 +1715,10 @@ def run_terminal(cfg):
                 slog(f"[tunnel] local sing-box died (exit {_code}) - "
                      f"restarted on mesh.", flush=True)
             # --- healing: does traffic REALLY flow through the mesh? ---
-            if cur:
+            # (Gated on a live tunnel: before the first switch there is
+            # nothing on :1080, and a phantom check would only paint a
+            # bogus dead streak.)
+            if cur and proc is not None and proc.poll() is None:
                 ok, reason = check_tunnel()
                 # Literal visibility: every failure and every recovery logged.
                 if not ok and (dead == 0 or (dead + 1) % 3 == 0):
