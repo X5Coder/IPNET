@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.5.7"
+APP_VERSION = "v1.5.8"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -951,6 +951,61 @@ def ygg_exit_hint():
     return ""
 
 
+def clear_port_owner(port=9001):
+    """Free 127.0.0.1:<port> from OUR OWN squatters before binding.
+
+    Two IPNET copies (e.g. old version still running elevated) fight
+    over the same admin port and the same ygg.conf: each launch kills
+    the other's node and its own node then dies on bind ('exited at
+    once' forever). So: whoever LISTENs on <port> and is one of ours
+    (yggdrasil.exe or any IPNET* binary, except THIS process) is
+    killed automatically. Anything foreign is only REPORTED, never
+    touched. Returns list of killed 'name(pid)'.
+    Windows-only (the ygg auto-setup itself is Windows-only here)."""
+    killed = []
+    if os.name != "nt":
+        return killed
+    try:
+        me = os.getpid()
+        ps = ("$c = Get-NetTCPConnection -LocalPort " + str(port) +
+              " -State Listen -ErrorAction SilentlyContinue; "
+              "foreach ($x in $c) { "
+              "try { $p = Get-Process -Id $x.OwningProcess -ErrorAction Stop; "
+              "\"{0}|{1}\" -f $x.OwningProcess, $p.ProcessName } "
+              "catch { } }")
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+            capture_output=True, text=True, timeout=20)
+        for line in (out.stdout or "").splitlines():
+            line = line.strip()
+            if "|" not in line:
+                continue
+            pid_s, name = line.split("|", 1)
+            if not pid_s.strip().isdigit():
+                continue
+            pid = int(pid_s.strip())
+            if pid == me:
+                continue
+            nl = name.strip().lower()
+            if nl == "yggdrasil" or nl.startswith("ipnet"):
+                try:
+                    subprocess.run(["taskkill", "/F", "/PID", str(pid)],
+                                   capture_output=True, timeout=10)
+                    killed.append(f"{name.strip()}({pid})")
+                except Exception:
+                    pass
+            else:
+                slog(f"[ygg] port {port} held by foreign "
+                     f"'{name.strip()}({pid})' - NOT touched (close it "
+                     f"manually if the node keeps dying).", flush=True)
+    except Exception as e:
+        slog(f"[ygg] port-{port} scan skipped: {e}", flush=True)
+    for k in killed:
+        slog(f"[ygg] auto-killed duplicate on port {port}: {k} "
+             f"(same app, would deadlock the node).", flush=True)
+    return killed
+
+
 def start_ygg_node(exe):
     """Start our mesh node (stable identity kept in ygg.conf). Returns proc
     or None. No TUN needed for the daemon itself; packet flow needs the
@@ -958,6 +1013,10 @@ def start_ygg_node(exe):
     global _ygg_proc
     conf = os.path.join(ygg_dir(), "ygg.conf")
     try:
+        # Order matters: FIRST free the admin port from our own squatters
+        # (duplicate IPNET copy holding :9001 would kill our node on
+        # bind), THEN clear stale node processes on our conf file.
+        clear_port_owner(9001)
         # Stale node from a crashed run would hold :9001 and our conf -
         # clear only processes running OUR conf file, never anything else.
         try:
@@ -978,6 +1037,7 @@ def start_ygg_node(exe):
                                timeout=10)
         except Exception:
             pass
+        time.sleep(2)  # let the freed port settle before binding
         if not os.path.exists(conf):
             out = subprocess.run([exe, "-genconf"], capture_output=True,
                                  text=True, timeout=30)
