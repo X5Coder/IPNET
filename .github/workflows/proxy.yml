@@ -84,6 +84,13 @@ jobs:
           sudo dpkg -i /tmp/ygg.deb
           yggdrasil --version
           mkdir -p ygg-node
+          # Stable per-repo identity: generated ONCE, committed back to the
+          # repo, reused by every later run. Same key => same mesh IP
+          # forever (phone configured once, DHT entries persist, no fresh-
+          # key convergence delay each run). The key is public in the repo -
+          # same posture as the public ss password: anyone may use the
+          # proxy; worst case is impersonation noise, not data theft
+          # (Shadowsocks encryption is a separate layer).
           if [ ! -f ygg-node/ygg.conf ]; then
             (cd ygg-node && yggdrasil -genconf > ygg.conf)
             python3 - <<'EOF'
@@ -311,6 +318,7 @@ jobs:
             git config user.email "bot@proxy.usa" || true
             git pull --rebase --autostash || true
             git add bore_url.txt ss_url.txt ss_ygg_url.txt proxy_urls.txt android-ss.txt sub.txt README.md || true
+            git add -f ygg-node/ygg.conf 2>/dev/null || true
             git commit -m "update bore $1 ss $2 (auto-heal)" || true
             git push || true
           }
