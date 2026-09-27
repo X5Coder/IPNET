@@ -114,6 +114,12 @@ jobs:
           sudo nohup yggdrasil -useconffile ygg-node/ygg.conf > /tmp/ygg.log 2>&1 &
           sleep 2
           pgrep -f "yggdrasil -useconffile" | head -1 | sudo tee /tmp/ygg.pid > /dev/null
+          # Inbound TCP via the TUN must be ACCEPTED: some runner images
+          # drop non-ICMP input on non-eth interfaces (observed: ICMP echo
+          # answered, every TCP SYN blackholed even on closed ports that
+          # should RST). No-op when the chains are already ACCEPT.
+          sudo iptables -I INPUT -i tun1 -j ACCEPT 2>/dev/null || true
+          sudo ip6tables -I INPUT -i tun1 -j ACCEPT 2>/dev/null || true
           sleep 20
           cat /tmp/ygg.log
           # Ygg mesh range is 200::/7 -> addresses start with 2xxx OR 3xxx
