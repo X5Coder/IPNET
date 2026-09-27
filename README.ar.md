@@ -47,7 +47,8 @@
 | الخطوة | الشرح |
 |:---:|---|
 | **1** | دوس على [**v2rayNG.apk**](https://github.com/2dust/v2rayNG/releases/download/2.2.6/v2rayNG_2.2.6_arm64-v8a.apk) للتحميل، وبعدين ثبّته. |
-| **2** | من القائمة أعلى اليسار افتح **Subscription group setting** ← دوس **+** واملأ الحقول تحت. |
+| **2** | للرابط **الثابت**: دوس على [**Yggdrasil.apk**](https://github.com/yggdrasil-network/yggdrasil-android/releases/download/v0.1-021/yggdrasil-android.apk) للتحميل، وبعدين ثبّته. |
+| **3** | من القائمة أعلى اليسار افتح **Subscription group setting** ← دوس **+** واملأ الحقول تحت. |
 
 **بيانات الاشتراك:**
 
@@ -62,9 +63,10 @@
 
 | الخطوة | الشرح |
 |:---:|---|
-| **3** | من الشاشة الرئيسية دوس **⋮** ← **Update subscription** ← دوس على `IPNET-USA` ← دوس **▶** ← وافق على صلاحية VPN. |
-| **4** | اتأكد إن الاتصال شغال من [ipleak.net](https://ipleak.net/) — المفروض يظهر **United States**. |
-| **5** | لو وقف بعدين: اعمل ريستارت للخدمة من الإشعار، وبعدين **⋮** ← **Update subscription** ← اتصل تاني. |
+| **4** | من الشاشة الرئيسية دوس **⋮** ← **Update subscription** ← هتلاقي إعدادين: `IPNET-USA` (رابط bore السريع، يتغير كل دقائق) و`IPNET-USA-YGG` (رابط الشبكة الثابت، المُفضّل). |
+| **5** | **للرابط الثابت:** افتح تطبيق **Yggdrasil الأول** وشغّله (ضيف الأقران دول مرة واحدة في إعداداته لو فاضي — نسخ/لصق):<br>`tls://mn.us.ygg.triplebit.org:993`<br>`tls://marisa.nadeko.net:44442`<br>`tls://ygg.mnpnk.com:443`<br>سيبه شغالًا، وبعدين في v2rayNG دوس على `IPNET-USA-YGG` ← دوس **▶** ← وافق على صلاحية VPN. |
+| **6** | اتأكد إن الاتصال شغال من [ipleak.net](https://ipleak.net/) — المفروض يظهر **United States**. |
+| **7** | لو وقف بعدين: اعمل ريستارت للخدمة من الإشعار، وبعدين **⋮** ← **Update subscription** ← اتصل تاني. (تطبيق Yggdrasil لازم يفضل شغالًا لإعداد `-YGG`.) |
 
 ---
 

@@ -1,0 +1,37 @@
+name: Watchdog (restart dead proxy runs)
+
+# Safety net for the 5h-cycle gap: if the USA Proxy run dies early
+# (timeout/error/runner loss), cron alone would leave the proxy dead
+# until the next 5h tick. This checks every 20 min and starts a fresh
+# run when none is active. The concurrency group guarantees only one
+# proxy run ever lives (a duplicate dispatch just cancels cleanly).
+
+on:
+  schedule:
+    - cron: '*/20 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  watch:
+    if: github.repository != 'X5Coder/IPNET'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Restart proxy if no run is active
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          N=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow proxy.yml \
+            --status in_progress --limit 1 --json databaseId -q 'length')
+          if [ "${N:-0}" -ge 1 ]; then
+            echo "proxy run ACTIVE - nothing to do."
+            exit 0
+          fi
+          echo "no active proxy run - dispatching a fresh USA Proxy run ..."
+          gh workflow run proxy.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            && echo "dispatched OK" \
+            || echo "dispatch failed (workflow missing/disabled?) - will retry next tick"

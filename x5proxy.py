@@ -28,13 +28,22 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.4.1"
+APP_VERSION = "v1.5.0"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
 SB_VERSION = "1.14.2"
 SS_METHOD = "aes-256-gcm"
 LOCAL_SOCKS_PORT = 1080
+# Yggdrasil (second transport, preferred when usable; bore stays fallback).
+YGG_VERSION = "0.5.14"
+YGG_MSI_URL = ("https://github.com/yggdrasil-network/yggdrasil-go/releases/"
+               "download/v0.5.14/yggdrasil-0.5.14-x64.msi")
+YGG_PEERS = ("tls://mn.us.ygg.triplebit.org:993",
+             "tls://marisa.nadeko.net:44442",
+             "tls://ygg.mnpnk.com:443")
+YGG_ADMIN = "tcp://127.0.0.1:9001"
+YGG_SS_PORT = 8388
 
 
 def slog(*args, **kwargs):
@@ -759,34 +768,9 @@ def free_local_port():
 
 
 def proxy_working(timeout=12):
-    """True only if traffic REALLY flows end-to-end: SOCKS5 handshake on
-    127.0.0.1:1080 + a CONNECT request through the Shadowsocks server.
-    A plain TCP check against bore.pub is NOT enough: the tunnel can be
-    up while the server-side proxy is dead and refusing every connection
-    (the singbox.log ERROR flood). Pure stdlib, no extra dependency."""
-    import socket
-    s = None
-    try:
-        s = socket.create_connection(("127.0.0.1", LOCAL_SOCKS_PORT),
-                                     timeout=timeout)
-        s.settimeout(timeout)
-        s.sendall(b"\x05\x01\x00")  # SOCKS5, no auth
-        if s.recv(2) != b"\x05\x00":
-            return False
-        host = b"www.gstatic.com"
-        req = (b"\x05\x01\x00\x03" + bytes([len(host)]) + host +
-               b"\x01\xbb")  # CONNECT host:443
-        s.sendall(req)
-        resp = s.recv(10)
-        return len(resp) >= 2 and resp[1] == 0x00
-    except Exception:
-        return False
-    finally:
-        try:
-            if s:
-                s.close()
-        except Exception:
-            pass
+    """Back-compat wrapper around check_tunnel (default local port)."""
+    ok, _ = check_tunnel(LOCAL_SOCKS_PORT, timeout)
+    return ok
 
 
 def start_tunnel(exe, client_cfg):
@@ -815,18 +799,213 @@ def stop_tunnel(proc, lf):
         pass
 
 
-def kill_stale_usa_chrome(profile):
-    """Kill leftover Chrome processes running OUR usa profile.
+# ---------------- Yggdrasil second transport (preferred, bore fallback) ---
+_ygg_proc = None
 
-    Why automatic (not a warning): Chrome keeps Preferences in memory and
-    rewrites the file on exit, so seeding while an old USA window lives
-    silently discards the fresh WebRTC/DoH policy AND the new window joins
-    the old process (fresh CLI flags ignored) -> real-IP WebRTC leak.
-    Only processes whose command line mentions our profile dir are
-    touched; the user's normal Chrome windows are never affected.
-    Returns number of killed processes (0 = none found).
-    """
-    killed = 0
+
+def ygg_dir():
+    d = os.path.join(app_dir(), "ygg")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def ensure_yggdrasil():
+    """Download + extract the Windows yggdrasil binary once (like sing-box).
+    Returns yggdrasil.exe path or '' (then bore simply continues)."""
+    if os.name != "nt":
+        slog("[ygg] auto-setup is Windows-only here - bore continues. "
+             "(Linux: apt install yggdrasil, then restart.)", flush=True)
+        return ""
+    d = os.path.join(ygg_dir(), "v" + YGG_VERSION)
+    exe = os.path.join(d, "PFiles", "Yggdrasil", "yggdrasil.exe")
+    ctl = os.path.join(d, "PFiles", "Yggdrasil", "yggdrasilctl.exe")
+    if os.path.exists(exe) and os.path.exists(ctl):
+        slog(f"[ygg] binary v{YGG_VERSION} ready.", flush=True)
+        return exe
+    slog(f"[ygg] downloading yggdrasil v{YGG_VERSION} (one time, ~6MB) ...",
+         flush=True)
+    os.makedirs(d, exist_ok=True)
+    msi = os.path.join(ygg_dir(), f"yggdrasil-{YGG_VERSION}.msi")
+    try:
+        if not os.path.exists(msi):
+            urllib.request.urlretrieve(YGG_MSI_URL, msi)
+        slog("[ygg] extracting (no install, no admin) ...", flush=True)
+        subprocess.run(["msiexec", "/a", msi, "/qn", f"TARGETDIR={d}"],
+                       capture_output=True, timeout=120)
+        time.sleep(3)
+        if os.path.exists(exe) and os.path.exists(ctl):
+            slog("[ygg] binary ready.", flush=True)
+            return exe
+    except Exception as e:
+        slog(f"[ygg] setup failed: {e} - bore continues.", flush=True)
+    slog("[ygg] setup failed - bore continues.", flush=True)
+    return ""
+
+
+def start_ygg_node(exe):
+    """Start our mesh node (stable identity kept in ygg.conf). Returns proc
+    or None. No TUN needed for the daemon itself; packet flow needs the
+    wintun driver (one-time admin) - the end-to-end check decides."""
+    global _ygg_proc
+    conf = os.path.join(ygg_dir(), "ygg.conf")
+    try:
+        # Stale node from a crashed run would hold :9001 and our conf -
+        # clear only processes running OUR conf file, never anything else.
+        try:
+            if os.name == "nt":
+                ps = ("Get-CimInstance Win32_Process -Filter \"Name='yggdrasil.exe'\" | "
+                      "Where-Object { $_.CommandLine -like '*ygg.conf*' } | "
+                      "ForEach-Object { $_.ProcessId }")
+                out = subprocess.run(
+                    ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                    capture_output=True, text=True, timeout=20)
+                for pid in (out.stdout or "").split():
+                    if pid.strip().isdigit():
+                        subprocess.run(["taskkill", "/F", "/PID", pid.strip()],
+                                       capture_output=True, timeout=10)
+                        slog("[ygg] cleared stale node process.", flush=True)
+            else:
+                subprocess.run(["pkill", "-f", "ygg.conf"], capture_output=True,
+                               timeout=10)
+        except Exception:
+            pass
+        if not os.path.exists(conf):
+            out = subprocess.run([exe, "-genconf"], capture_output=True,
+                                 text=True, timeout=30)
+            s = out.stdout or ""
+            peers = "\n".join("    " + p for p in YGG_PEERS)
+            s = s.replace("Peers: []", "Peers: [\n" + peers + "\n  ]")
+            with open(conf, "w", encoding="utf-8") as f:
+                f.write(s)
+            slog("[ygg] fresh node identity generated (kept in ygg.conf).",
+                 flush=True)
+        else:
+            slog("[ygg] reusing saved node identity.", flush=True)
+        lf = open(os.path.join(ygg_dir(), "ygg.log"), "a", encoding="utf-8")
+        _ygg_proc = subprocess.Popen(
+            [exe, "-useconffile", conf], stdout=lf, stderr=subprocess.STDOUT,
+            creationflags=0x08000000 if os.name == "nt" else 0)
+        time.sleep(6)
+        if _ygg_proc.poll() is not None:
+            slog("[ygg] node exited at once - see ygg/ygg.log. bore continues.",
+                 flush=True)
+            _ygg_proc = None
+            return None
+        ip = ygg_node_ip(exe)
+        slog(f"[ygg] node up. our mesh ip: {ip or 'unknown yet'}", flush=True)
+        return _ygg_proc
+    except Exception as e:
+        slog(f"[ygg] node start failed: {e} - bore continues.", flush=True)
+        return None
+
+
+def ygg_node_ip(exe):
+    """Our local mesh IPv6 (200:.../300:...) or ''."""
+    try:
+        ctl = os.path.join(os.path.dirname(exe), "yggdrasilctl.exe")
+        out = subprocess.run([ctl, "getSelf"], capture_output=True,
+                             text=True, timeout=15)
+        for line in (out.stdout or "").splitlines():
+            if "/" in line:  # skip the /64 subnet line, want the address
+                continue
+            m = re.search(r"\b(2[0-9a-f]{2}:[0-9a-f:]+:[0-9a-f]+)\b",
+                          line.lower())
+            if m:
+                return m.group(1)
+        return ""
+    except Exception:
+        return ""
+
+
+def ygg_peers_up(exe):
+    """Best-effort count of 'Up' peerings, or -1."""
+    try:
+        ctl = os.path.join(os.path.dirname(exe), "yggdrasilctl.exe")
+        out = subprocess.run([ctl, "getPeers"], capture_output=True,
+                             text=True, timeout=15)
+        return (out.stdout or "").count(" Up ")
+    except Exception:
+        return -1
+
+
+def stop_ygg_node():
+    global _ygg_proc
+    try:
+        if _ygg_proc and _ygg_proc.poll() is None:
+            _ygg_proc.terminate()
+            try:
+                _ygg_proc.wait(timeout=5)
+            except Exception:
+                _ygg_proc.kill()
+    except Exception:
+        pass
+    _ygg_proc = None
+
+
+def fetch_ygg_endpoint(cfg):
+    """Fresh Shadowsocks-over-mesh endpoint from ss_ygg_url.txt.
+    File holds [ipv6]:port; returns ('ss_ygg_url.txt', 'ipv6:port') or ('','')."""
+    v = raw_get(f"{RAW}/{cfg['owner']}/{cfg['repo']}/main/ss_ygg_url.txt",
+                bust=True)
+    v = (v or "").strip()
+    m = re.match(r"^\[([0-9a-fA-F:]+)\]:(\d{1,5})$", v)
+    if m:
+        return "ss_ygg_url.txt", f"{m.group(1)}:{m.group(2)}"
+    return "", ""
+
+
+def split_endpoint(ep):
+    """'bore.pub:123' or '200:...:8388' -> (host, port)."""
+    host, _, port = (ep or "").strip().strip("[]").rpartition(":")
+    try:
+        return host.strip().strip("[]"), int(port)
+    except Exception:
+        return "", 0
+
+
+def build_client_cfg(host, port, method, password):
+    return {
+        "log": {"level": "error"},
+        "inbounds": [{"type": "mixed", "tag": "in",
+                      "listen": "127.0.0.1",
+                      "listen_port": LOCAL_SOCKS_PORT}],
+        "outbounds": [{"type": "shadowsocks", "tag": "out",
+                       "server": host, "server_port": port,
+                       "method": method, "password": password}],
+    }
+
+
+def check_tunnel(port=LOCAL_SOCKS_PORT, timeout=12):
+    """(ok, reason): SOCKS5 handshake on 127.0.0.1:port + CONNECT probe
+    through the Shadowsocks server. Pure stdlib."""
+    import socket
+    s = None
+    try:
+        s = socket.create_connection(("127.0.0.1", port), timeout=timeout)
+        s.settimeout(timeout)
+        s.sendall(b"\x05\x01\x00")  # SOCKS5, no auth
+        if s.recv(2) != b"\x05\x00":
+            return False, "socks handshake rejected"
+        host = b"www.gstatic.com"
+        req = (b"\x05\x01\x00\x03" + bytes([len(host)]) + host +
+               b"\x01\xbb")  # CONNECT host:443
+        s.sendall(req)
+        resp = s.recv(10)
+        if len(resp) >= 2 and resp[1] == 0x00:
+            return True, "traffic flows end-to-end"
+        return False, f"socks CONNECT refused (code {resp[1] if resp else 'none'})"
+    except Exception as e:
+        return False, f"no traffic: {type(e).__name__}"
+    finally:
+        try:
+            if s:
+                s.close()
+        except Exception:
+            pass
+
+
+def _usa_chrome_pids(profile):
+    """PIDs of chrome.exe whose command line mentions our profile dir."""
     try:
         if os.name == "nt":
             marker = os.path.basename(os.path.abspath(profile))
@@ -836,27 +1015,101 @@ def kill_stale_usa_chrome(profile):
             out = subprocess.run(
                 ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
                 capture_output=True, text=True, timeout=20)
-            pids = [p.strip() for p in (out.stdout or "").split()
+            return [p.strip() for p in (out.stdout or "").split()
                     if p.strip().isdigit()]
+        else:
+            out = subprocess.run(["pgrep", "-f", "chrome-usa"],
+                                 capture_output=True, text=True, timeout=10)
+            return [p.strip() for p in (out.stdout or "").split()
+                    if p.strip().isdigit()]
+    except Exception as e:
+        slog(f"[chrome] stale-profile check skipped: {e}", flush=True)
+        return []
+
+
+def close_usa_chrome_graceful(profile, wait=10):
+    """Close OUR usa-profile windows gently (lets Chrome flush logins,
+    cookies and history to disk), force-kill only leftovers (usually
+    headless stragglers with no window). Returns (graceful, forced)."""
+    pids = _usa_chrome_pids(profile)
+    if not pids:
+        return 0, 0
+    slog(f"[chrome] asking {len(pids)} USA window(s) to close gently ...",
+         flush=True)
+    try:
+        if os.name == "nt":
             for pid in pids:
                 try:
-                    subprocess.run(["taskkill", "/F", "/PID", pid],
-                                   capture_output=True, timeout=10)
-                    killed += 1
+                    subprocess.run(
+                        ["powershell", "-NoProfile", "-NonInteractive",
+                         "-Command",
+                         f"(Get-Process -Id {pid} -ErrorAction SilentlyContinue)"
+                         ".CloseMainWindow() | Out-Null"],
+                        capture_output=True, timeout=10)
                 except Exception:
                     pass
         else:
-            out = subprocess.run(["pkill", "-f", "chrome-usa"],
-                                 capture_output=True, timeout=10)
-            if out.returncode == 0:
-                killed = 1  # pkill gives no count; 1 = "something matched"
+            for pid in pids:
+                try:
+                    subprocess.run(["kill", pid], capture_output=True,
+                                   timeout=10)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    graceful, forced = 0, 0
+    try:
+        left = pids
+        for _ in range(max(1, int(wait))):
+            time.sleep(1)
+            left = _usa_chrome_pids(profile)
+            if not left:
+                break
+        graceful = len(pids) - len(left)
+        for pid in left:
+            try:
+                if os.name == "nt":
+                    subprocess.run(["taskkill", "/F", "/PID", pid],
+                                   capture_output=True, timeout=10)
+                else:
+                    subprocess.run(["kill", "-9", pid], capture_output=True,
+                                   timeout=10)
+                forced += 1
+            except Exception:
+                pass
     except Exception as e:
-        slog(f"Stale-profile check skipped: {e}", flush=True)
-    if killed:
-        slog(f"Closed {killed} stale USA window(s) to apply fresh protection.",
+        slog(f"[chrome] close wait skipped: {e}", flush=True)
+    if graceful or forced:
+        slog(f"[chrome] closed gently: {graceful}, force-killed: {forced}.",
              flush=True)
         time.sleep(2)  # let file locks release before seeding
-    return killed
+    return graceful, forced
+
+
+def kill_stale_usa_chrome(profile):
+    """Back-compat wrapper: gentle close first, force only leftovers."""
+    g, f = close_usa_chrome_graceful(profile)
+    return g + f
+
+
+def profile_needs_seed(profile):
+    """True only if the REAL Default/Preferences lacks our exact values.
+    Steady-state launches return False -> no kill, no write, Chrome is
+    never disturbed (logins/cookies/history stay intact)."""
+    prefs = os.path.join(profile, "Default", "Preferences")
+    try:
+        with open(prefs, "r", encoding="utf-8") as f:
+            cur = json.load(f) or {}
+        intl = cur.get("intl") or {}
+        web = cur.get("webrtc") or {}
+        doh = cur.get("dns_over_https") or {}
+        ok = (intl.get("accept_languages") == "en-US,en"
+              and web.get("ip_handling_policy") == "disable_non_proxied_udp"
+              and doh.get("mode") == "secure"
+              and doh.get("templates") == "https://1.1.1.1/dns-query{?dns}")
+        return not ok
+    except Exception:
+        return True  # missing/unreadable profile -> seed it
 
 
 def seed_chrome_profile(profile):
@@ -880,6 +1133,10 @@ def seed_chrome_profile(profile):
     prefs = os.path.join(profile, "Default", "Preferences")
     try:
         os.makedirs(os.path.join(profile, "Default"), exist_ok=True)
+        if os.path.exists(prefs) and not profile_needs_seed(profile):
+            slog("[chrome] profile already sealed - untouched (logins kept).",
+                 flush=True)
+            return True
         data = {}
         if os.path.exists(prefs):
             try:
@@ -931,11 +1188,17 @@ def open_usa_chrome(chrome, url=None):
     url is opened only when given (first run); otherwise a normal window."""
     profile = os.path.join(app_dir(), "chrome-usa")
     os.makedirs(profile, exist_ok=True)
-    # Radical-automatic order: kill stale USA windows FIRST (a leftover
-    # window from a pre-fix version would keep leaky in-memory settings
-    # and swallow the fresh seed + CLI flags), then seed, then launch.
-    kill_stale_usa_chrome(profile)
-    armed = seed_chrome_profile(profile)
+    # Gentle order that preserves logins: seed (and any close) ONLY when
+    # the profile actually lacks our values. Steady state = zero touching.
+    if profile_needs_seed(profile):
+        slog("[chrome] profile needs sealing - closing USA windows gently ...",
+             flush=True)
+        kill_stale_usa_chrome(profile)
+        armed = seed_chrome_profile(profile)
+    else:
+        slog("[chrome] profile already sealed - reusing open windows as-is.",
+             flush=True)
+        armed = True
     # Read-back: prove what the profile will enforce (visible in terminal).
     try:
         with open(os.path.join(profile, "Default", "Preferences"),
@@ -971,9 +1234,19 @@ def open_usa_chrome(chrome, url=None):
 
 def run_terminal(cfg):
     """Terminal loop: show proxy address, refresh endpoint, open Chrome.
+    Dual transport: ygg (mesh, stable, preferred) + bore (fallback).
+    Every decision is logged literally ([net]/[ygg]/[bore]/[switch]/[check]).
     Raises RuntimeError if the repo/endpoint is unusable -> GUI reopens."""
     free_local_port()
     exe = ensure_singbox()
+    ygg_exe = ensure_yggdrasil()
+    ygg_node = start_ygg_node(ygg_exe) if ygg_exe else None
+    if ygg_node:
+        up = ygg_peers_up(ygg_exe)
+        slog(f"[ygg] mesh peerings up: {up if up >= 0 else 'unknown'} "
+             f"(see ygg/ygg.log for detail).", flush=True)
+    else:
+        slog("[bore] ygg unavailable - bore only this session.", flush=True)
     chrome = find_chrome()
     if not chrome:
         slog("WARNING: Chrome not found. Install Google Chrome first.")
@@ -987,8 +1260,10 @@ def run_terminal(cfg):
         pass
     proc = None
     tun_log = None
-    current = ""
+    transport = "bore"  # active leg; ygg preferred whenever it proves itself
+    cur = {"bore": "", "ygg": ""}
     dead = 0
+    _ygg_last_try = time.time()  # startup already tried once above
     client_cfg = os.path.join(app_dir(), "sb-client.json")
     slog("=" * 60)
     slog(f"  {APP_NAME} {APP_VERSION} - USA proxy (leave this window OPEN)")
@@ -999,55 +1274,93 @@ def run_terminal(cfg):
     first_run = True
     chrome_opened = False  # open Chrome once per process: renewals must
     # NOT spawn another window while one is already open
+
+    def switch_to(which, ep, why):
+        """Rebuild local sing-box for (which, ep) and restart the tunnel."""
+        nonlocal proc, tun_log
+        host, port = split_endpoint(ep)
+        if not host or not port:
+            slog(f"[switch] {why}: BAD endpoint '{ep}' - skipped.", flush=True)
+            return False
+        ccfg = build_client_cfg(host, port, cfg.get("method", SS_METHOD),
+                                cfg["password"])
+        with open(client_cfg, "w", encoding="utf-8") as f:
+            json.dump(ccfg, f)
+        stop_tunnel(proc, tun_log)
+        proc, tun_log = start_tunnel(exe, client_cfg)
+        time.sleep(2)
+        ok, reason = check_tunnel()
+        planned = "planned, no downtime" if dead == 0 else "healing"
+        slog(f"[switch] -> {which} {ep} ({why}; {planned}; "
+             f"check: {'OK' if ok else 'FAIL: ' + reason}).", flush=True)
+        return ok
+
     try:
         while True:
-            name, endpoint = fetch_endpoint(cfg)
+            # ---- 1) fresh endpoints, literally logged on change ----
+            name_b, bore_ep = fetch_endpoint(cfg)
             # Instant path: while the tunnel is down the branch raw URL can
             # lag ~5 min (CDN cache), so ask the commits API for the fresh
             # SHA (throttled, ~90s) and jump straight to the new endpoint.
-            if dead and endpoint == current:
+            if dead and bore_ep == cur["bore"]:
                 _pn, _pe = fetch_pinned_endpoint(cfg)
-                if _pe and _pe != current:
-                    name, endpoint = _pn, _pe
-            if not endpoint:
+                if _pe and _pe != cur["bore"]:
+                    slog(f"[net] bore endpoint via SHA-pin (CDN was stale): {_pe}",
+                         flush=True)
+                    name_b, bore_ep = _pn, _pe
+            if bore_ep != cur["bore"]:
+                slog(f"[net] bore endpoint: '{cur['bore'] or 'none'}' -> "
+                     f"'{bore_ep or 'none'}' (source: {name_b or 'unpublished'}).",
+                     flush=True)
+            name_y, ygg_ep = ("", "")
+            if ygg_node and ygg_node.poll() is None:
+                name_y, ygg_ep = fetch_ygg_endpoint(cfg)
+                if ygg_ep != cur["ygg"]:
+                    slog(f"[net] ygg endpoint: '{cur['ygg'] or 'none'}' -> "
+                         f"'{ygg_ep or 'none'}'.", flush=True)
+            elif ygg_exe:
+                _now = time.time()
+                if _now - _ygg_last_try > 120:
+                    _ygg_last_try = _now
+                    slog("[ygg] node process gone - restarting it ...",
+                         flush=True)
+                    ygg_node = start_ygg_node(ygg_exe)
+                    if not ygg_node:
+                        slog("[ygg] restart failed - bore only for now.",
+                             flush=True)
+            # ---- 2) desired leg: ygg whenever it exists, else bore ----
+            desired = ("ygg" if ygg_ep else "bore")
+            want = {"bore": bore_ep, "ygg": ygg_ep}[desired]
+            if not want:
                 fails += 1
-                slog(f"Endpoint not published yet ({fails}) - next check in ~1 min. "
-                      f"Follow https://github.com/{cfg['owner']}/{cfg['repo']}/actions",
-                      flush=True)
+                slog(f"[net] no usable endpoint ({fails}) - next check soon. "
+                     f"Follow https://github.com/{cfg['owner']}/{cfg['repo']}/actions",
+                     flush=True)
                 if fails >= 10:
                     raise RuntimeError("No endpoint published. Re-enter the repo URL.")
                 time.sleep(60)
                 continue
             fails = 0
-            if endpoint != current:
-                current = endpoint
-                host, _, port = endpoint.partition(":")
-                ccfg = {
-                    "log": {"level": "error"},
-                    "inbounds": [{"type": "mixed", "tag": "in",
-                                  "listen": "127.0.0.1",
-                                  "listen_port": LOCAL_SOCKS_PORT}],
-                    "outbounds": [{"type": "shadowsocks", "tag": "out",
-                                   "server": host.strip(),
-                                   "server_port": int(port),
-                                   "method": cfg.get("method", SS_METHOD),
-                                   "password": cfg["password"]}],
-                }
-                with open(client_cfg, "w", encoding="utf-8") as f:
-                    json.dump(ccfg, f)
-                stop_tunnel(proc, tun_log)
-                proc, tun_log = start_tunnel(exe, client_cfg)
-                # startup check: dead on arrival -> the server self-heals and
-                # publishes a new endpoint; we just follow it (follow-only).
-                if first_run and not proxy_working():
-                    first_run = False
-                    slog("Proxy not responding on startup - "
-                          "waiting for the server's fresh endpoint ...", flush=True)
-                first_run = False
+            # ---- 3) switch when leg or endpoint changed ----
+            if desired != transport or want != cur[transport]:
+                if desired != transport:
+                    why = (f"prefer {desired} ("
+                           + ("ygg proven, stable" if desired == "ygg"
+                              else "ygg missing, bore fallback") + ")")
+                else:
+                    why = f"{transport} endpoint renewed"
+                transport = desired
+                cur[desired] = want
+                alive = switch_to(desired, want, why)
+                if first_run and not alive:
+                    slog("[net] proxy not responding on startup - server "
+                         "self-heals, following its fresh endpoint ...",
+                         flush=True)
                 slog("-" * 60)
                 slog(f"PROXY ADDRESS (manual use): 127.0.0.1:{LOCAL_SOCKS_PORT} (SOCKS5 + HTTP)")
-                slog(f"SERVER: {endpoint} "
-                      f"({'encrypted' if name == 'ss_url.txt' else 'plain http'})")
+                slog(f"SERVER: {want} "
+                      f"({'mesh-ygg' if desired == 'ygg' else 'encrypted-bore'}) "
+                      f"[leg: {transport}]")
                 slog("IP: USA (Phoenix, Arizona)")
                 slog("-" * 60, flush=True)
                 if chrome and not chrome_opened:
@@ -1061,24 +1374,37 @@ def run_terminal(cfg):
                 elif chrome:
                     slog("Endpoint renewed - using the already-open Chrome "
                           "window (no new window).", flush=True)
+                first_run = False
             if proc and proc.poll() not in (None, 0):
                 stop_tunnel(proc, tun_log)
                 proc, tun_log = start_tunnel(exe, client_cfg)
-                slog("Local tunnel restarted.", flush=True)
+                slog(f"[tunnel] local sing-box died - restarted on {transport}.",
+                     flush=True)
             # --- client-side healing: does traffic REALLY flow? ---
             # (TCP to bore.pub is not enough: the tunnel can be up while
             # the server-side proxy refuses everything -> ERROR flood.)
-            if current and proxy_working():
-                if dead:
-                    slog("Proxy is working again.", flush=True)
-                dead = 0
-            elif current:
-                dead += 1
-                if dead == 1 or dead % 3 == 0:
-                    slog(f"Proxy not responding ({dead}) - server self-heals, "
-                          "following its fresh endpoint ...", flush=True)
-                # Follow-only: the workflow heals itself on FIRST failure and
-                # publishes a new endpoint; the loop above picks it up.
+            if cur[transport]:
+                ok, reason = check_tunnel()
+                # Literal visibility: every failure and every recovery logged.
+                if not ok and (dead == 0 or (dead + 1) % 3 == 0):
+                    slog(f"[check] {transport} via 127.0.0.1:{LOCAL_SOCKS_PORT}: "
+                         f"FAIL ({reason}) - dead streak {dead + 1}.", flush=True)
+                if ok:
+                    if dead:
+                        slog("[check] traffic flows again.", flush=True)
+                    dead = 0
+                else:
+                    dead += 1
+                    # Instant failover: the other leg may already be fine.
+                    other = "ygg" if transport == "bore" else "bore"
+                    if cur[other]:
+                        slog(f"[failover] {transport} dead - trying {other} "
+                             f"{cur[other]} now ...", flush=True)
+                        transport = other
+                        if switch_to(other, cur[other], "failover"):
+                            dead = 0
+                    # Follow-only: the workflow heals itself on FIRST failure and
+                    # publishes a new endpoint; the loop above picks it up.
             # Poll fast while down (5s) so the switch is instant, calm (15s)
             # while healthy. Raw polling is free; the API stays throttled.
             time.sleep(5 if dead else 15)
@@ -1086,6 +1412,7 @@ def run_terminal(cfg):
         slog("\nStopping...")
     finally:
         stop_tunnel(proc, tun_log)
+        stop_ygg_node()
 
 
 def main():

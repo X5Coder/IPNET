@@ -45,7 +45,8 @@ Free US server (GitHub Actions) · Windows app · Phone subscription
 | Step | What to do |
 |:---:|---|
 | **1** | Click [**v2rayNG.apk**](https://github.com/2dust/v2rayNG/releases/download/2.2.6/v2rayNG_2.2.6_arm64-v8a.apk) to download, then install it. |
-| **2** | Open the top-left menu → **Subscription group setting** → tap **+** and fill in the fields below. |
+| **2** | For the **stable** link: click [**Yggdrasil.apk**](https://github.com/yggdrasil-network/yggdrasil-android/releases/download/v0.1-021/yggdrasil-android.apk) to download, then install it. |
+| **3** | Open the top-left menu → **Subscription group setting** → tap **+** and fill in the fields below. |
 
 **Subscription fields:**
 
@@ -60,9 +61,10 @@ Then tap **✓** to save.
 
 | Step | What to do |
 |:---:|---|
-| **3** | On the main screen tap **⋮** → **Update subscription** → tap `IPNET-USA` → tap **▶** → allow the VPN permission. |
-| **4** | Verify it worked at [ipleak.net](https://ipleak.net/) — it should show **United States**. |
-| **5** | If it stops working later: restart the service from the notification, then **⋮** → **Update subscription** → reconnect. |
+| **4** | On the main screen tap **⋮** → **Update subscription** → you will see **two** configs: `IPNET-USA` (fast bore link, changes every few minutes) and `IPNET-USA-YGG` (stable mesh link, recommended). |
+| **5** | **For the stable link:** open the **Yggdrasil app first** and start it (add these peers once in its settings if empty — copy/paste):<br>`tls://mn.us.ygg.triplebit.org:993`<br>`tls://marisa.nadeko.net:44442`<br>`tls://ygg.mnpnk.com:443`<br>Keep it running, then in v2rayNG tap `IPNET-USA-YGG` → tap **▶** → allow the VPN permission. |
+| **6** | Verify it worked at [ipleak.net](https://ipleak.net/) — it should show **United States**. |
+| **7** | If it stops working later: restart the service from the notification, then **⋮** → **Update subscription** → reconnect. (Yggdrasil app must stay running for the `-YGG` config.) |
 
 ---
 
