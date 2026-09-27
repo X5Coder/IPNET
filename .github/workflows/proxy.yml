@@ -187,6 +187,11 @@ jobs:
 
       - name: Mesh loopback test (Shadowsocks over ygg, end-to-end)
         run: |
+          echo "=== Server net diagnostics (permanent: TCP blackholes hide here) ==="
+          echo "--- iptables ---"; sudo iptables -L -n -v 2>/dev/null | head -20 || true
+          echo "--- ip6tables ---"; sudo ip6tables -L -n -v 2>/dev/null | head -20 || true
+          echo "--- listeners ---"; ss -tlnp 2>/dev/null | grep -E "8388|9001" || true
+          echo "--- ipv6 forwarding/rp_filter ---"; sysctl net.ipv6.conf.all.forwarding net.ipv6.conf.tun1.rp_filter net.ipv4.conf.tun1.rp_filter 2>/dev/null || true
           echo "=== Testing Shadowsocks through MESH (ygg) leg ==="
           YGG_URL="$(cat ss_ygg_url.txt 2>/dev/null | tr -d ' \r\n')"
           if [ -z "$YGG_URL" ]; then echo "FATAL: no mesh endpoint published"; exit 1; fi
