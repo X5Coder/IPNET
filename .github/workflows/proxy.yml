@@ -63,13 +63,21 @@ jobs:
           tar xz -f /tmp/sb.tgz -C /tmp
           cp /tmp/sing-box-*/sing-box /tmp/sing-box && chmod +x /tmp/sing-box
           /tmp/sing-box version
-          echo "Starting ss server on 0.0.0.0:8388 ..."
+          echo "Starting ss server on :::8388 (dual-stack: bore IPv4 + ygg IPv6) ..."
           /tmp/sing-box run -c singbox-server.json > /tmp/ss.log 2>&1 &
           echo $! > /tmp/ss.pid
           sleep 3
           cat /tmp/ss.log
           ss -tlnp | grep -E "8388|8080" || netstat -tlnp | grep -E "8388|8080" || true
-          echo "Shadowsocks ready (aes-256-gcm, port 8388)"
+          # HARD GATE: the mesh leg is IPv6 - an IPv4-only listen (0.0.0.0)
+          # silently kills 100% of ygg traffic. Refuse to continue blind.
+          if (ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | grep -q ":::8388"; then
+            echo "ss dual-stack listen OK (:::8388 serves bore + mesh)"
+          else
+            echo "FATAL: ss is NOT listening on :::8388 (dual-stack broken) - ygg leg would be dead"
+            ss -tln || netstat -tln || true
+            exit 1
+          fi
 
       - name: Start Yggdrasil mesh node (stable second transport)
         run: |
@@ -116,7 +124,8 @@ jobs:
           pgrep -f "yggdrasil -useconffile" | head -1 | sudo tee /tmp/ygg.pid > /dev/null
           sleep 20
           cat /tmp/ygg.log
-          YGG_IP=$(yggdrasilctl -endpoint tcp://127.0.0.1:9001 getSelf 2>/dev/null | grep -v "/64" | grep -oE "2[0-9a-f]{2}:[0-9a-f:]+:[0-9a-f]+" | head -1)
+          # Ygg mesh range is 200::/7 -> addresses start with 2xxx OR 3xxx
+          YGG_IP=$(yggdrasilctl -endpoint tcp://127.0.0.1:9001 getSelf 2>/dev/null | grep -v "/64" | grep -oE "[23][0-9a-f]{2}:[0-9a-f:]+:[0-9a-f]+" | head -1)
           # GATE: publish the mesh endpoint ONLY if the node really peered
           # AND the ss server really listens - otherwise an unroutable ghost
           # IP would be published and clients would chase a dead leg.
@@ -262,11 +271,16 @@ jobs:
           if [ -n "$YGG_URL" ]; then
             YGG_HOST="$(echo "$YGG_URL" | sed 's/^\[//;s/\].*//')"
             YGG_PORT="$(echo "$YGG_URL" | sed 's/.*\]://')"
+            echo "--- ygg L3: raw TCP to [$YGG_HOST]:$YGG_PORT via mesh ---"
+            timeout 10 bash -c "cat < /dev/null > /dev/tcp/$YGG_HOST/$YGG_PORT" \
+              && echo "YGG L3 TCP OK" || echo "YGG L3 TCP FAIL (mesh routing not converged yet)"
+            echo "--- ygg L7: ss handshake + http via socks-1082 ---"
             printf '{"log":{"level":"info"},"inbounds":[{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":1082}],"outbounds":[{"type":"shadowsocks","tag":"out","server":"%s","server_port":%s,"method":"aes-256-gcm","password":"X5_Secure_2026!Strong"}]}' "$YGG_HOST" "$YGG_PORT" > /tmp/sb-ygg.json
             /tmp/sing-box run -c /tmp/sb-ygg.json > /tmp/sb-ygg.log 2>&1 &
             sleep 3
             echo "--- ygg: http via socks-1082 ---"
-            curl -s --max-time 30 --socks5-hostname 127.0.0.1:1082 http://httpbin.org/ip && echo "" && echo "YGG LEG OK" || echo "YGG LEG FAIL (bore continues alone)"
+            curl -s --max-time 30 --socks5-hostname 127.0.0.1:1082 http://httpbin.org/ip && echo "" && echo "YGG LEG OK (real traffic over mesh)" || echo "YGG LEG FAIL (bore continues alone - mesh needs more warmup or DHT convergence)"
+            echo "--- sb-ygg log tail ---"; tail -20 /tmp/sb-ygg.log || true
           else
             echo "no ygg endpoint published - bore only"
           fi
@@ -420,7 +434,7 @@ jobs:
               echo "ygg not peered - publish skipped (file keeps last value)"
               return 1
             fi
-            _ip=$(yggdrasilctl -endpoint tcp://127.0.0.1:9001 getSelf 2>/dev/null | grep -v "/64" | grep -oE "2[0-9a-f]{2}:[0-9a-f:]+:[0-9a-f]+" | head -1)
+            _ip=$(yggdrasilctl -endpoint tcp://127.0.0.1:9001 getSelf 2>/dev/null | grep -v "/64" | grep -oE "[23][0-9a-f]{2}:[0-9a-f:]+:[0-9a-f]+" | head -1)
             [ -z "$_ip" ] && return 1
             _cur="[${_ip}]:8388"
             if [ "$(cat ss_ygg_url.txt 2>/dev/null)" != "$_cur" ]; then
