@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v1.5.2"
+APP_VERSION = "v1.5.3"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -752,18 +752,19 @@ def find_chrome():
 # raw branch URLs lag ~5 min (Fastly max-age=300, verified: X-Cache HIT,
 # Source-Age ~294s). The commits API is fresh instantly, and a raw URL
 # pinned to a commit SHA is immutable, so the CDN must MISS and serve the
-# new file at once. The API is polled at most every ~90s (unauthenticated
-# limit is 60/hr -> 90s uses ~40/hr, safely under it).
-_last_sha_check = 0.0
-_last_seen_sha = ""
+# new file at once. The API is polled at most every ~90s PER PATH
+# (unauthenticated limit is 60/hr -> two paths use ~80/hr worst case;
+# normally far less since pins run only while down).
+_last_sha_check = {}
+_last_seen_sha = {}
 
 
 def _api_latest_sha(owner, repo, path="ss_url.txt"):
-    """Latest commit SHA touching <path>, or '' (throttled to ~90s)."""
+    """Latest commit SHA touching <path>, or '' (throttled to ~90s/path)."""
     global _last_sha_check
-    if time.time() - _last_sha_check < 90:
+    if time.time() - _last_sha_check.get(path, 0) < 90:
         return ""
-    _last_sha_check = time.time()
+    _last_sha_check[path] = time.time()
     url = (f"https://api.github.com/repos/{owner}/{repo}/commits"
            f"?path={path}&per_page=1&sha=main")
     try:
@@ -779,21 +780,42 @@ def _api_latest_sha(owner, repo, path="ss_url.txt"):
     return ""
 
 
-def fetch_pinned_endpoint(cfg):
+def _valid_ep(kind, v):
+    v = (v or "").strip()
+    if kind == "bore":
+        return v if v and re.match(r"bore\.pub:\d+$", v) else ""
+    m = re.match(r"^\[([0-9a-fA-F:]+)\]:(\d{1,5})$", v)
+    return f"{m.group(1)}:{m.group(2)}" if m else ""
+
+
+def fetch_pinned(cfg, path, kind):
     """Fresh endpoint via SHA-pinned raw URL (bypasses branch cache).
+    kind: 'bore' (ss_url.txt/bore_url.txt) or 'ygg' (ss_ygg_url.txt).
     Returns (name, endpoint) or ('','')."""
     global _last_seen_sha
-    sha = _api_latest_sha(cfg["owner"], cfg["repo"])
-    if not sha or sha == _last_seen_sha:
+    sha = _api_latest_sha(cfg["owner"], cfg["repo"], path)
+    if not sha or sha == _last_seen_sha.get(path, ""):
         return "", ""
-    for name in ("ss_url.txt", "bore_url.txt"):
-        v = raw_get(f"{RAW}/{cfg['owner']}/{cfg['repo']}/{sha}/{name}",
-                    timeout=15)
-        if v and re.match(r"bore\.pub:\d+", v):
-            _last_seen_sha = sha
+    names = ("ss_url.txt", "bore_url.txt") if kind == "bore" \
+        else ("ss_ygg_url.txt",)
+    for name in names:
+        v = _valid_ep(kind, raw_get(
+            f"{RAW}/{cfg['owner']}/{cfg['repo']}/{sha}/{name}", timeout=15))
+        if v:
+            _last_seen_sha[path] = sha
             return name, v
-    _last_seen_sha = sha  # sha seen but endpoint not in it; don't refetch
+    _last_seen_sha[path] = sha  # seen but no endpoint; don't refetch
     return "", ""
+
+
+def fetch_pinned_endpoint(cfg):
+    """Back-compat: pinned bore endpoint."""
+    return fetch_pinned(cfg, "ss_url.txt", "bore")
+
+
+def fetch_pinned_ygg(cfg):
+    """Pinned ygg endpoint."""
+    return fetch_pinned(cfg, "ss_ygg_url.txt", "ygg")
 
 
 def fetch_endpoint(cfg):
@@ -1327,25 +1349,25 @@ def run_terminal(cfg):
     Every decision is logged literally ([net]/[ygg]/[bore]/[switch]/[check]).
     Raises RuntimeError if the repo/endpoint is unusable -> GUI reopens."""
     free_local_port()
+    # Admin FIRST (before any tunnel/browser): the mesh leg needs the TUN
+    # interface, which Windows only grants elevated. One UAC prompt on
+    # first launch; a decline is remembered (bore continues, never ask
+    # again). Elevated copy takes over; this window closes.
+    if os.name == "nt" and not is_admin() and not ELEVATED \
+            and not cfg.get("noAdmin"):
+        slog("[admin] requesting elevation for full speed (mesh TUN) ...",
+             flush=True)
+        if try_elevate("startup"):
+            return
+        cfg["noAdmin"] = True
+        try:
+            save_config(cfg)
+        except Exception:
+            pass
+        slog("[admin] noted: won't ask again (bore continues).", flush=True)
     exe = ensure_singbox()
     ygg_exe = ensure_yggdrasil()
     ygg_node = start_ygg_node(ygg_exe) if ygg_exe else None
-    if not ygg_node and ygg_exe and not is_admin() and not ELEVATED \
-            and not cfg.get("noAdmin"):
-        hint = ygg_exit_hint()
-        if "admin" in hint.lower():
-            slog("[admin] mesh needs one-time elevation - asking now ...",
-                 flush=True)
-            stop_ygg_node()
-            if try_elevate("mesh TUN driver"):
-                return  # elevated copy takes over; this window closes
-            cfg["noAdmin"] = True
-            try:
-                save_config(cfg)
-            except Exception:
-                pass
-            slog("[admin] noted: won't ask again (bore continues).",
-                 flush=True)
     if ygg_node:
         up = ygg_peers_up(ygg_exe)
         slog(f"[ygg] mesh peerings up: {up if up >= 0 else 'unknown'} "
@@ -1379,6 +1401,20 @@ def run_terminal(cfg):
     first_run = True
     chrome_opened = False  # open Chrome once per process: renewals must
     # NOT spawn another window while one is already open
+
+    def open_chrome_once():
+        """Open the USA window exactly once - and ONLY on working traffic,
+        so the user never faces a dead browser."""
+        nonlocal chrome_opened
+        if not chrome or chrome_opened:
+            return
+        chrome_opened = True
+        if not cfg.get("welcomed"):
+            open_usa_chrome(chrome, "https://ipleak.net/")
+            cfg["welcomed"] = True
+            save_config(cfg)
+        else:
+            open_usa_chrome(chrome)
 
     def switch_to(which, ep, why):
         """Rebuild local sing-box for (which, ep) and restart the tunnel."""
@@ -1424,6 +1460,13 @@ def run_terminal(cfg):
             name_y, ygg_ep = ("", "")
             if ygg_node and ygg_node.poll() is None:
                 name_y, ygg_ep = fetch_ygg_endpoint(cfg)
+                # Same CDN staleness applies to the mesh file: pin it while down.
+                if dead and ygg_ep == cur["ygg"]:
+                    _pn, _pe = fetch_pinned_ygg(cfg)
+                    if _pe and _pe != cur["ygg"]:
+                        slog(f"[net] ygg endpoint via SHA-pin (CDN was stale): {_pe}",
+                             flush=True)
+                        name_y, ygg_ep = "ss_ygg_url.txt", _pe
                 if ygg_ep != cur["ygg"]:
                     slog(f"[net] ygg endpoint: '{cur['ygg'] or 'none'}' -> "
                          f"'{ygg_ep or 'none'}'.", flush=True)
@@ -1477,6 +1520,10 @@ def run_terminal(cfg):
                     slog("[net] proxy not responding on startup - server "
                          "self-heals, following its fresh endpoint ...",
                          flush=True)
+                    slog("[chrome] window held until traffic flows "
+                         "(no dead browser).", flush=True)
+                if alive:
+                    open_chrome_once()
                 slog("-" * 60)
                 slog(f"PROXY ADDRESS (manual use): 127.0.0.1:{LOCAL_SOCKS_PORT} (SOCKS5 + HTTP)")
                 slog(f"SERVER: {want} "
@@ -1484,15 +1531,9 @@ def run_terminal(cfg):
                       f"[leg: {transport}]")
                 slog("IP: USA (Phoenix, Arizona)")
                 slog("-" * 60, flush=True)
-                if chrome and not chrome_opened:
-                    chrome_opened = True
-                    if not cfg.get("welcomed"):
-                        open_usa_chrome(chrome, "https://ipleak.net/")
-                        cfg["welcomed"] = True
-                        save_config(cfg)
-                    else:
-                        open_usa_chrome(chrome)
-                elif chrome:
+                if alive:
+                    open_chrome_once()
+                elif chrome and chrome_opened:
                     slog("Endpoint renewed - using the already-open Chrome "
                           "window (no new window).", flush=True)
                 first_run = False
@@ -1515,6 +1556,7 @@ def run_terminal(cfg):
                         slog("[check] traffic flows again.", flush=True)
                     dead = 0
                     _bad_until.pop(cur[transport], None)
+                    open_chrome_once()  # deferred open fires here
                 else:
                     dead += 1
                     # Instant failover: the other leg may already be fine.
