@@ -2,15 +2,14 @@
 #
 # This is the ONLY workflow in v3. It does NOT run server.py, sing-box,
 # or cloudflared (running those on Actions is what got fresh accounts
-# banned). It only builds the v2rayNG subscription files from:
-#   worker.txt            -> YOUR Worker hostname (written once by you)
-#   singbox-server.json   -> uuid
-# and commits sub.txt + android-vless.txt + README live block.
+# banned). On first push it makes a FRESH random uuid for THIS repo copy
+# (every user gets their own password, automatic), then builds sub.txt +
+# android-vless.txt + README live block once worker.txt is set.
 #
-# It runs ONLY when you edit worker.txt / singbox-server.json, or when
-# you press "Run workflow" by hand. No cron, no loop, no spam pushes.
+# The deployed worker.js ALSO carries a built-in DEFAULT_UUID so it works
+# even before this runs. No cron, no loop, no spam pushes.
 
-name: Publish subscription (static, no proxy)
+name: First setup (uuid + subscription)
 
 on:
   workflow_dispatch:
@@ -32,21 +31,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build sub.txt from worker.txt + uuid
+      - name: Ensure unique uuid + build subscription
         run: |
+          python3 setup_uuid.py
           HOST="$(cat worker.txt 2>/dev/null | tr -d ' \r\n' | sed 's|https://||;s|/.*||')"
-          case "$HOST" in *.workers.dev) echo "worker: $HOST";; *) echo "worker.txt missing/invalid - write your Worker hostname first"; exit 0;; esac
-          UUID="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0]['users'][0]['uuid'])")"
-          LINK="vless://${UUID}@${HOST}:443?encryption=none&security=tls&sni=${HOST}&type=ws&path=%2Fipnet&host=${HOST}#IPNET-USA"
-          printf '%s' "$LINK" > android-vless.txt
-          printf '%s' "$LINK" | base64 -w0 > sub.txt
-          export IPNET_LINK="$LINK"
-          export IPNET_SUB="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/sub.txt"
-          export IPNET_REPO="https://github.com/$GITHUB_REPOSITORY"
-          export IPNET_WORKER="https://$HOST"
-          python3 -c 'import os; block=("<!--IPNET-LIVE-START-->\n## Live connection (auto-updated, copy from here)\n\n- Repo: "+os.environ["IPNET_REPO"]+"\n- Worker: "+os.environ["IPNET_WORKER"]+"\n\n- v2rayNG link (copy/QR, VLESS+WS+TLS via your own Worker):\n```\n"+os.environ["IPNET_LINK"]+"\n```\n\n- Subscription (fixed forever, auto-updates):\n```\n"+os.environ["IPNET_SUB"]+"\n```\n<!--IPNET-LIVE-END-->"); s=open("README.md",encoding="utf-8").read(); import re; pat=re.compile(r"<!--IPNET-LIVE-START-->.*?<!--IPNET-LIVE-END-->",re.S); s=pat.sub(block,s,count=1) if pat.search(s) else s+"\n"+block+"\n"; open("README.md","w",encoding="utf-8").write(s); print("README live block updated")'
-          git config user.name "ipnet-bot"
-          git config user.email "bot@ipnet.local"
-          git add sub.txt android-vless.txt README.md || true
-          git commit -m "publish subscription for $HOST" || true
-          git push || true
+          case "$HOST" in *.workers.dev) echo "worker: $HOST";; *) echo "uuid ready - paste Worker hostname into worker.txt"; git config user.name "ipnet-bot"; git config user.email "bot@ipnet.local"; git add singbox-server.json; git commit -m "unique uuid for this copy" || true; git push || true; exit 0;; esac
+          python3 build_sub.py "$HOST"

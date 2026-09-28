@@ -31,11 +31,15 @@ async function fetchRepoUuid(repoSlug) {
     return m ? m[1] : "";
   } catch (_) { return ""; }
 }
+var DEFAULT_UUID = "9ec8f3be-758e-487f-b057-cb1e1ddf4a9b";
 async function resolveUuid(env, url) {
   var q = new URL(url).searchParams.get("uuid");
   if (/^[0-9a-fA-F-]{36}$/.test(q || "")) return q;
-  if (/^[0-9a-fA-F-]{36}$/.test((env.UUID || "").trim())) return env.UUID.trim();
-  return await fetchRepoUuid(parseRepo(env.REPO));
+  if (env && /^[0-9a-fA-F-]{36}$/.test((env.UUID || "").trim())) return env.UUID.trim();
+  // Optional: read a per-repo uuid from singbox-server.json (advanced users).
+  // Normal users skip this entirely — DEFAULT_UUID above just works.
+  var fromRepo = env ? await fetchRepoUuid(parseRepo(env.REPO)) : "";
+  return fromRepo || DEFAULT_UUID;
 }
 function vlessLink(host, uuid) {
   return "vless://" + uuid + "@" + host + ":443?encryption=none&security=tls&sni=" + host + "&type=ws&path=%2Fipnet&host=" + host + "#IPNET-USA";
@@ -131,8 +135,12 @@ export default {
       var info = request.cf || {};
       return Response.json({ ip: request.headers.get("CF-Connecting-IP") || "", country: info.country || "US", city: info.city || "", colo: info.colo || "" }, { headers: { "Cache-Control": "no-store" } });
     }
-    var ok = (await resolveUuid(env, request.url)) ? "configured" : "MISSING (set UUID or REPO)";
-    return new Response("<html><body style='font-family:system-ui;background:#0f172a;color:#fff;text-align:center;padding:40px'><h2>IPNET Worker - Online</h2><p>UUID: " + ok + "</p><p>/ip /sub /link</p></body></html>", { headers: { "Content-Type": "text/html" } });
+    var ok = "ready (no setup needed)";
+    var info0 = request.cf || {};
+    var ip0 = request.headers.get("CF-Connecting-IP") || "checking...";
+    var cc0 = info0.country || "US";
+    var city0 = info0.city ? " (" + info0.city + ")" : "";
+    return new Response("<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>IPNET Connected</title></head><body style='font-family:system-ui;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0'><div style='background:#1e293b;padding:36px 44px;border-radius:18px;text-align:center;max-width:420px'><div style='font-size:52px'>✅</div><h2 style='color:#38bdf8;margin:10px 0'>Connected</h2><p style='color:#94a3b8'>UUID: " + ok + "</p><p><b>Your IP:</b> " + ip0 + "</p><p><b>Country:</b> " + cc0 + city0 + "</p><p style='font-size:13px;color:#94a3b8'>Now paste your repo link into IPNET.exe and press Start.</p></div></body></html>", { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
   }
 };
 
