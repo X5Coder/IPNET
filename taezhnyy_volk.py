@@ -29,10 +29,10 @@ import time
 import urllib.request
 import zipfile
 
-IMYA_ZVERYA = "VOLK"
-VERSIYA_ZVERYA = "v2.1.2"
-DOROGA_K_LOGOVU = "https://github.com/TaezhnyyVolk/VOLK"
-KHOZYAIN_LESA = "TaezhnyyVolk"
+IMYA_ZVERYA = "IPNET"
+VERSIYA_ZVERYA = "v2.1.3"
+DOROGA_K_LOGOVU = "https://github.com/X5Coder/IPNET"
+KHOZYAIN_LESA = "X5Coder"
 SYROY_SLED = "https://raw.githubusercontent.com"
 VERSIYA_MATRYOSHKI = "1.14.2"
 VOLCHYA_NORA_PORT = 1080
@@ -511,7 +511,7 @@ def sovet_stareyshin(error_msg=""):
 
     tk.Label(wrap, text="1  —  Make your own copy (once)", bg=PAPER, fg=INK,
              font=("Segoe UI", 9, "bold")).pack(anchor="w")
-    tk.Label(wrap, text="Open the original repo, press \"Use this template\", "
+    tk.Label(wrap, text="Open the official IPNET repo, press \"Use this template\", "
                         "create yours. Click the link to copy it.",
              bg=PAPER, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 2))
     LINK_BG, LINK_FG = "#EFF6FF", "#1D4ED8"
@@ -623,7 +623,7 @@ def sovet_stareyshin(error_msg=""):
     tk.Frame(wrap, bg=HAIR, height=1).pack(fill="x", pady=(10, 8))
     tk.Label(wrap, text=f"{IMYA_ZVERYA} {VERSIYA_ZVERYA} — by {KHOZYAIN_LESA}", bg=PAPER, fg=MUTED,
              font=("Consolas", 8)).pack(anchor="center")
-    tk.Label(wrap, text="Original: github.com/TaezhnyyVolk/VOLK", bg=PAPER, fg=MUTED,
+    tk.Label(wrap, text="Original: github.com/X5Coder/IPNET", bg=PAPER, fg=MUTED,
              font=("Consolas", 8)).pack(anchor="center")
     root.mainloop()
     return result.get("cfg")
@@ -1336,6 +1336,8 @@ def voy_volka(cfg):
             return
         chrome_opened = True
         if not cfg.get("welcomed"):
+            # First run: ipleak proves the USA exit works. Later runs open
+            # a plain window - faster, no nagging.
             vypustit_sokola(chrome, "https://ipleak.net/")
             cfg["welcomed"] = True
             pryatat_svitok(cfg)
@@ -1347,6 +1349,12 @@ def voy_volka(cfg):
         nonlocal proc, tun_log
         if not host:
             shepchit_les(f"[switch] {why}: BAD hostname - skipped.", flush=True)
+            return False
+        # 30s guard: skip the rebuild when the endpoint is known-dead
+        # (just failed minutes ago) - saves sing-box restarts/log spam.
+        if chuet_opasnost(host):
+            shepchit_les(f"[switch] {host} in cooldown - waiting it out.",
+                         flush=True)
             return False
         ccfg = skovat_kolchugu(host, cfg["uuid"])
         with open(client_cfg, "w", encoding="utf-8") as f:
