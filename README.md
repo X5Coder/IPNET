@@ -87,3 +87,19 @@ If IPNET is useful to you, please **star the repo** — it takes 5 seconds and h
 <a href="https://github.com/X5Coder/IPNET"><img src="https://img.shields.io/badge/Repo-IPNET_Original-111111?style=for-the-badge&logo=github&logoColor=white" alt="Original repo"></a>
 
 </div>
+
+<!--VOLK-ZHIVO-START-->
+## Live connection (auto-updated, copy from here)
+
+- Repo: https://github.com/X5Coder/IPNET
+
+- v2rayNG link (copy/QR, TLS+WebSocket via Cloudflare):
+```
+vmess://eyJ2IjoiMiIsInBzIjoiVk9MSy1UQVlHQSIsImFkZCI6Imxpei1zaXQtZXN0aW1hdGUtdGVtcG9yYXJpbHkudHJ5Y2xvdWRmbGFyZS5jb20iLCJwb3J0IjoiNDQzIiwiaWQiOiI5ZWM4ZjNiZS03NThlLTQ4N2YtYjA1Ny1jYjFlMWRkZjRhOWIiLCJhaWQiOiIwIiwibmV0Ijoid3MiLCJ0eXBlIjoibm9uZSIsImhvc3QiOiJsaXotc2l0LWVzdGltYXRlLXRlbXBvcmFyaWx5LnRyeWNsb3VkZmxhcmUuY29tIiwicGF0aCI6Ii90YWlnYSIsInRscyI6InRscyJ9
+```
+
+- Subscription (fixed forever, auto-updates):
+```
+https://raw.githubusercontent.com/X5Coder/IPNET/main/zayachiy_sled.txt
+```
+<!--VOLK-ZHIVO-END-->
