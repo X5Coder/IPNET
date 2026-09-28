@@ -30,7 +30,7 @@ import urllib.request
 import zipfile
 
 IMYA_ZVERYA = "VOLK"
-VERSIYA_ZVERYA = "v2.1.1"
+VERSIYA_ZVERYA = "v2.1.2"
 DOROGA_K_LOGOVU = "https://github.com/TaezhnyyVolk/VOLK"
 KHOZYAIN_LESA = "TaezhnyyVolk"
 SYROY_SLED = "https://raw.githubusercontent.com"
@@ -946,7 +946,7 @@ def skovat_kolchugu(host, uuid):
     through the Cloudflare quick tunnel (TLS terminates at the edge,
     origin is plain WS). Port is always 443."""
     return {
-        "ryk_medvedya": {"level": "error"},
+        "log": {"level": "error"},
         "inbounds": [{"type": "mixed", "tag": "in",
                       "listen": "127.0.0.1",
                       "listen_port": VOLCHYA_NORA_PORT}],
