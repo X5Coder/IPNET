@@ -30,7 +30,7 @@ import urllib.request
 import zipfile
 
 IMYA_ZVERYA = "IPNET"
-VERSIYA_ZVERYA = "v2.1.3"
+VERSIYA_ZVERYA = "v2.1.5"
 DOROGA_K_LOGOVU = "https://github.com/X5Coder/IPNET"
 KHOZYAIN_LESA = "X5Coder"
 SYROY_SLED = "https://raw.githubusercontent.com"
@@ -59,6 +59,17 @@ def chuet_opasnost(ep):
 
 # (Cloudflare era: no admin rights needed - plain user launch. The old
 # elevation flow and the whole Yggdrasil transport were removed in v2.0.0.)
+
+
+def _zapisat_krash(text):
+    """Append a startup crash line where the user can actually find it."""
+    try:
+        lf = os.path.join(taezhnoe_logovo(), "ipnet-startup.log")
+        os.makedirs(os.path.dirname(lf), exist_ok=True)
+        with open(lf, "a", encoding="utf-8") as f:
+            f.write(time.strftime("[%Y-%m-%d %H:%M:%S] ") + str(text) + "\n")
+    except Exception:
+        pass
 
 
 def shepchit_les(*args, **kwargs):
@@ -868,9 +879,20 @@ def odin_volk_v_lesu():
     lock_pid, lock_ver = gryzt_tsep()
     if lock_pid and lock_pid != me and dykhanie_zverya(lock_pid):
         if lock_ver == VERSIYA_ZVERYA:
-            shepchit_les(f"VOLK {VERSIYA_ZVERYA} is already running (pid {lock_pid}) - "
+            shepchit_les(f"IPNET {VERSIYA_ZVERYA} is already running (pid {lock_pid}) - "
                  f"exiting. (One copy only.)",
                  flush=True)
+            if getattr(sys, "frozen", False):
+                try:
+                    from tkinter import messagebox
+                    messagebox.showinfo(
+                        "IPNET",
+                        f"IPNET {VERSIYA_ZVERYA} is already running.\n\n"
+                        "Look for its window (Alt+Tab) instead of\n"
+                        "starting a second copy.")
+                except Exception:
+                    pass
+                sys.exit(0)
             try:
                 input("Press Enter to close ...")
             except Exception:
@@ -1510,7 +1532,20 @@ def voy_volka(cfg):
 def ataman_taygi():
     # Single instance FIRST (before reset/windows): a second copy exits
     # quietly here - no prompts, no tunnel wars.
-    odin_volk_v_lesu()
+    try:
+        odin_volk_v_lesu()
+    except SystemExit:
+        raise
+    except Exception as e:
+        _zapisat_krash(f"lock: {e!r}")
+        try:
+            from tkinter import messagebox
+            messagebox.showerror("IPNET",
+                                 f"Could not start (lock).\n{e}\n\n"
+                                 "Delete %APPDATA%\\VOLK\\app.lock and retry.")
+        except Exception:
+            pass
+        return
     if "--reset" in sys.argv:
         try:
             os.remove(tropa_volka())
@@ -1534,12 +1569,23 @@ def ataman_taygi():
     except KeyboardInterrupt:
         shepchit_les("\nStopping...")
     except Exception as e:
+        _zapisat_krash(f"fatal: {e!r}")
         try:
             import traceback
+            _zapisat_krash(traceback.format_exc())
             traceback.print_exc()
         except Exception:
             pass
         shepchit_les(f"\nUnexpected error: {e}", flush=True)
+        if getattr(sys, "frozen", False):
+            # windowed EXE has no console: show it, and keep it up.
+            try:
+                from tkinter import messagebox
+                messagebox.showerror("IPNET", f"Unexpected error:\n{e}\n\n"
+                                     "Details: %APPDATA%\\VOLK\\ipnet-startup.log")
+                return
+            except Exception:
+                pass
         try:
             input("Press Enter to close ...")
         except Exception:
