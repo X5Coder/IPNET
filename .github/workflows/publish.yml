@@ -1,15 +1,15 @@
-# IPNET sub.txt generator — SAFE static publisher (no proxy, no tunnel).
+# IPNET first-setup — SAFE static publisher (no proxy, no tunnel).
 #
 # This is the ONLY workflow in v3. It does NOT run server.py, sing-box,
 # or cloudflared (running those on Actions is what got fresh accounts
-# banned). On first push it makes a FRESH random uuid for THIS repo copy
-# (every user gets their own password, automatic), then builds sub.txt +
-# android-vless.txt + README live block once worker.txt is set.
+# banned). What it does: build sub.txt + android-vless.txt + README
+# live block ONCE from worker.txt + the SHARED uuid in singbox-server.json.
 #
-# The deployed worker.js ALSO carries a built-in DEFAULT_UUID so it works
-# even before this runs. No cron, no loop, no spam pushes.
+# Design: ONE shared uuid for everybody (worker.js DEFAULT_UUID).
+# No Variables step, no copy-paste of uuids — copy + Deploy + worker.txt
+# + Start, done. No cron, no loop, no spam pushes.
 
-name: First setup (uuid + subscription)
+name: First setup (subscription)
 
 on:
   workflow_dispatch:
@@ -31,9 +31,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Ensure unique uuid + build subscription
+      - name: Build subscription
         run: |
-          python3 setup_uuid.py
           HOST="$(cat worker.txt 2>/dev/null | tr -d ' \r\n' | sed 's|https://||;s|/.*||')"
-          case "$HOST" in *.workers.dev) echo "worker: $HOST";; *) echo "uuid ready - paste Worker hostname into worker.txt"; git config user.name "ipnet-bot"; git config user.email "bot@ipnet.local"; git add singbox-server.json; git commit -m "unique uuid for this copy" || true; git push || true; exit 0;; esac
+          case "$HOST" in *.workers.dev) echo "worker: $HOST";; *) echo "paste your Worker hostname into worker.txt first"; exit 0;; esac
           python3 build_sub.py "$HOST"
+          git config user.name "ipnet-bot"
+          git config user.email "bot@ipnet.local"
+          git add sub.txt android-vless.txt README.md || true
+          git commit -m "setup: subscription for $HOST" || true
+          git push || true
