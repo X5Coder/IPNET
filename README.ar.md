@@ -30,10 +30,10 @@
 | الخطوة | الشرح |
 |:---:|---|
 | **1** | افتح [`X5Coder/IPNET`](https://github.com/X5Coder/IPNET) ← دوس **Use this template** ← اعمل مستودعك الخاص (لازم يكون **Public**). |
-| **2** | انشر سيرفرك الخاص (مجاني بحسابك أنت): افتح [`dash.cloudflare.com`](https://dash.cloudflare.com/) ← سجّل بايميل (من غير فيزا) ← **Workers & Pages** ← **Create** ← الصق محتوى ملف **`worker.js`** من مستودعك ← افتح **Settings → Variables** وحط `REPO` = رابط مستودعك ← **Deploy**. هيطلعلك `https://ipnet-usa-YOU.workers.dev`. |
-| **3** | في مستودعك افتح **`worker.txt`** ← اكتب السطر الواحد ده (`ipnet-usa-YOU.workers.dev`) ← Commit. أكشن **Publish subscription** هيبني `sub.txt` مرة واحدة وخلاص — مفيش حاجة شغالة كل دقيقة. |
+| **2** | انشر السيرفر بتاعك (مجاني من غير فيزا ومن غير أي إعدادات): افتح [`dash.cloudflare.com`](https://dash.cloudflare.com/) ← سجّل بايميل ← **Workers & Pages** ← **Create ← Start with Hello World** ← **Deploy** ← **Edit Code** ← الصق محتوى ملف **`worker.js`** من مستودعك ← **Deploy**. هيطلعلك `https://ipnet-usa-YOU.workers.dev`. مفيش متغيرات ولا حاجة تتملي. |
+| **3** | في مستودعك افتح **`worker.txt`** ← اكتب السطر الواحد ده (`ipnet-usa-YOU.workers.dev`) ← Commit. أكشن **First setup** هيبني `sub.txt` مرة واحدة وخلاص — مفيش حاجة شغالة كل دقيقة. |
 
-اتأكد: افتح `https://YOUR-WORKER.workers.dev/ip` — بيوريك دولة الخروج.
+اتأكد: افتح `https://YOUR-WORKER.workers.dev/` — صفحة ✅ Connected الخضرا. الموبايل: خد رابط `sub.txt` من البلوك اللي في صفحة المستودع.
 
 ---
 

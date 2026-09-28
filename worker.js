@@ -33,13 +33,11 @@ async function fetchRepoUuid(repoSlug) {
 }
 var DEFAULT_UUID = "9ec8f3be-758e-487f-b057-cb1e1ddf4a9b";
 async function resolveUuid(env, url) {
+  // v3.4: ONE shared uuid for everybody — zero config.
+  // ?uuid= override still wins if present (testing only).
   var q = new URL(url).searchParams.get("uuid");
   if (/^[0-9a-fA-F-]{36}$/.test(q || "")) return q;
-  if (env && /^[0-9a-fA-F-]{36}$/.test((env.UUID || "").trim())) return env.UUID.trim();
-  // Optional: read a per-repo uuid from singbox-server.json (advanced users).
-  // Normal users skip this entirely — DEFAULT_UUID above just works.
-  var fromRepo = env ? await fetchRepoUuid(parseRepo(env.REPO)) : "";
-  return fromRepo || DEFAULT_UUID;
+  return DEFAULT_UUID;
 }
 function vlessLink(host, uuid) {
   return "vless://" + uuid + "@" + host + ":443?encryption=none&security=tls&sni=" + host + "&type=ws&path=%2Fipnet&host=" + host + "#IPNET-USA";

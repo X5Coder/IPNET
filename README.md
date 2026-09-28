@@ -28,10 +28,10 @@ Free US server (GitHub Actions + Cloudflare tunnel) · Windows app, no admin nee
 | Step | What to do |
 |:---:|---|
 | **1** | Open [`X5Coder/IPNET`](https://github.com/X5Coder/IPNET) → click **Use this template** → create your own repo (must be **Public**). |
-| **2** | Deploy YOUR OWN Worker (free, your account, your address): open [`dash.cloudflare.com`](https://dash.cloudflare.com/) → sign up with email (no visa) → **Workers & Pages** → **Create** → paste the content of **`worker.js`** from your repo → open **Settings → Variables** and add `REPO` = your repo link (e.g. `https://github.com/YOU/YOUR-REPO`) → **Deploy**. You get `https://ipnet-usa-YOU.workers.dev`. |
-| **3** | In your repo, open **`worker.txt`** → write that ONE line (`ipnet-usa-YOU.workers.dev`) → Commit. The **Publish subscription** action builds your `sub.txt` once. That's it — nothing runs every minute. |
+| **2** | Deploy YOUR Worker (free, no visa, no settings): open [`dash.cloudflare.com`](https://dash.cloudflare.com/) → sign up with email → **Workers & Pages** → **Create → Start with Hello World** → **Deploy** → **Edit Code** → paste the content of **`worker.js`** from your repo → **Deploy**. You get `https://ipnet-usa-YOU.workers.dev`. No variables, nothing to fill. |
+| **3** | In your repo, open **`worker.txt`** → write that ONE line (`ipnet-usa-YOU.workers.dev`) → Commit. The **First setup** action builds your `sub.txt` once. That's it — nothing runs every minute. |
 
-Check it: open `https://YOUR-WORKER.workers.dev/ip` — it shows the egress country.
+Check it: open `https://YOUR-WORKER.workers.dev/` — green ✅ Connected page. Mobile: use the `sub.txt` link from your repo's README live block.
 
 ---
 
