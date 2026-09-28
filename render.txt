@@ -1,8 +1,0 @@
-# After you Deploy this repo on Render, write your service hostname in
-# this file (ONE line, ONCE) — for example:
-#
-#   ipnet-usa.onrender.com
-#
-# IPNET.exe reads this file to know where YOUR server lives.
-# (Nothing is rewritten every minute — that spam is what got GitHub
-# accounts banned. One line, one time, done.)

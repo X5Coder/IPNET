@@ -1,8 +1,0 @@
-# After you Deploy this repo on Cloudflare Workers, write your worker
-# hostname in this file (ONE line, ONCE) — for example:
-#
-#   ipnet-usa-YOU.workers.dev
-#
-# IPNET.exe reads this file to know where YOUR server lives.
-# (Nothing is written here every minute — that spammy behavior is what
-# got accounts banned. One line, one time, done.)

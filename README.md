@@ -8,7 +8,7 @@
 
 Free US server (GitHub Actions + Cloudflare tunnel) · Windows app, no admin needed · Phone subscription
 
-> How it works: YOU deploy one file (worker.js) on YOUR OWN free Cloudflare account — no visa. GitHub only stores your worker address (one line, written once). The app and the phone subscription follow it. No GitHub Actions proxy runs, so accounts don't get banned.
+> How it works: your server publishes a fresh random tunnel address every few hours; the app and the phone subscription follow it automatically. If a tunnel dies or hits Cloudflare's request cap, both sides heal themselves within a minute.
 
 <br>
 
@@ -21,17 +21,14 @@ Free US server (GitHub Actions + Cloudflare tunnel) · Windows app, no admin nee
 
 ---
 
-## 1️⃣ Create Your Server (one-time setup, ~10 min, no visa)
+## 1️⃣ Create Your Server (one-time setup)
 
 > This setup is done once — after that, you're ready to connect anytime.
 
 | Step | What to do |
 |:---:|---|
 | **1** | Open [`X5Coder/IPNET`](https://github.com/X5Coder/IPNET) → click **Use this template** → create your own repo (must be **Public**). |
-| **2** | Deploy YOUR Worker (free, no visa, no settings): open [`dash.cloudflare.com`](https://dash.cloudflare.com/) → sign up with email → **Workers & Pages** → **Create → Start with Hello World** → **Deploy** → **Edit Code** → paste the content of **`worker.js`** from your repo → **Deploy**. You get `https://ipnet-usa-YOU.workers.dev`. No variables, nothing to fill. |
-| **3** | In your repo, open **`worker.txt`** → write that ONE line (`ipnet-usa-YOU.workers.dev`) → Commit. The **First setup** action builds your `sub.txt` once. That's it — nothing runs every minute. |
-
-Check it: open `https://YOUR-WORKER.workers.dev/` — green ✅ Connected page. Mobile: use the `sub.txt` link from your repo's README live block.
+| **2** | In your new repo, open the **Actions** tab and run the **USA Proxy** workflow if it isn't already running. |
 
 ---
 
@@ -65,12 +62,10 @@ Then tap **✓** to save.
 
 | Step | What to do |
 |:---:|---|
-| **4** | On the main screen tap **⋮** → **Update subscription** → you will see one config: `IPNET-USA` (VLESS over your own Worker, TLS+WebSocket). |
+| **4** | On the main screen tap **⋮** → **Update subscription** → you will see one config: `IPNET-USA` (VMess over Cloudflare, TLS+WebSocket). |
 | **5** | Tap `IPNET-USA` → tap **▶** → allow the VPN permission. No other app, no peers, no settings. |
-| **6** | Verify it worked at [ipleak.net](https://ipleak.net/) — it usually shows **United States** (Cloudflare egress; see note below). |
-| **7** | If it stops working later: **⋮** → **Update subscription** → reconnect. (Your Worker address is fixed — it never rotates.) |
-
-> Honest note: Cloudflare egress IPs are registered US in most cases, so `ipleak.net` usually shows **United States**, but a small share of requests may exit via EU colos. If you need a guaranteed US datacenter IP, move the same setup to Oracle Ashburn free tier later — the app flow stays identical.
+| **6** | Verify it worked at [ipleak.net](https://ipleak.net/) — it should show **United States**. |
+| **7** | If it stops working later: **⋮** → **Update subscription** → reconnect. (The server rotates its address every few hours; the subscription follows it automatically.) |
 
 ---
 
