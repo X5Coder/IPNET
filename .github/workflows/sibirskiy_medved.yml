@@ -1,4 +1,4 @@
-name: USA Proxy (GitHub Actions + Cloudflare)
+name: Sibirskiy Medved (dozor taygi)
 
 on:
   workflow_dispatch:
@@ -12,9 +12,9 @@ on:
     # ZIP-manual setup: starts right after upload. Bot commits (*.txt,
     # *.md) never match these code paths, so no self-trigger loop.
     paths:
-      - "server.py"
-      - "singbox-server.json"
-      - ".github/workflows/proxy.yml"
+      - "severnyy_medved.py"
+      - "matryoshka_dvigatel.json"
+      - ".github/workflows/sibirskiy_medved.yml"
 
 permissions:
   contents: write
@@ -24,14 +24,14 @@ permissions:
 # publishes its own tunnel first, then retires the older run. Killing
 # the old run at startup would open a setup gap every cycle.
 concurrency:
-  group: usa-proxy
+  group: sibirskiy-medved
   cancel-in-progress: false
 
 jobs:
   proxy:
     # Never run on the template repo itself (schedule would burn minutes
     # and push endpoint files to main). User copies run elsewhere.
-    if: github.repository != 'X5Coder/IPNET'
+    if: github.repository != 'X5Coder/VOLK'
     runs-on: ubuntu-latest
     timeout-minutes: 300  # 5 hours
     steps:
@@ -41,7 +41,7 @@ jobs:
       - name: Start local HTTP proxy (self-test + manual use inside runner)
         run: |
           echo "Starting proxy on 0.0.0.0:8080 ..."
-          PORT=8080 PROXY_USER=x5coder PROXY_PASS='X5_Secure_2026!Strong' python3 server.py > /tmp/proxy.log 2>&1 &
+          PORT=8080 PROXY_USER=taezhnyyvolk PROXY_PASS='Volk_Taiga_2026_Krepkiy!' python3 severnyy_medved.py > /tmp/proxy.log 2>&1 &
           echo $! > /tmp/proxy.pid
           sleep 3
           cat /tmp/proxy.log
@@ -57,7 +57,7 @@ jobs:
           cp /tmp/sing-box-*/sing-box /tmp/sing-box && chmod +x /tmp/sing-box
           /tmp/sing-box version
           echo "Starting vmess-ws server on 127.0.0.1:10086 ..."
-          /tmp/sing-box run -c singbox-server.json > /tmp/ss.log 2>&1 &
+          /tmp/sing-box run -c matryoshka_dvigatel.json > /tmp/ss.log 2>&1 &
           echo $! > /tmp/ss.pid
           sleep 3
           cat /tmp/ss.log
@@ -71,7 +71,7 @@ jobs:
             exit 1
           fi
           echo "--- local egress IP (should be US) ---"
-          curl -s --max-time 15 -x 'http://x5coder:X5_Secure_2026!Strong@127.0.0.1:8080' http://httpbin.org/ip || echo "LOCAL HTTP FAIL"
+          curl -s --max-time 15 -x 'http://taezhnyyvolk:Volk_Taiga_2026_Krepkiy!@127.0.0.1:8080' http://httpbin.org/ip || echo "LOCAL HTTP FAIL"
           echo ""
 
       - name: Install cloudflared
@@ -83,31 +83,31 @@ jobs:
       - name: Start cloudflared quick tunnel (no account, random URL per run)
         run: |
           make_sub() {
-            # Fixed URLs, evergreen content: android-ss.txt (plain vmess://
-            # link) and sub.txt (base64 subscription for v2rayNG/NekoBox
+            # Fixed URLs, evergreen content: volchiy_sled.txt (plain vmess://
+            # link) and zayachiy_sled.txt (base64 subscription for v2rayNG/NekoBox
             # auto-update). The URLs never change; only the content tracks
             # the live tunnel hostname.
-            CF_HOST="$(cat cf_vmess.txt 2>/dev/null | tr -d ' \r\n')"
+            CF_HOST="$(cat medvezhiy_sled.txt 2>/dev/null | tr -d ' \r\n')"
             [ -z "$CF_HOST" ] && return 0
-            UUID="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0]['users'][0]['uuid'])")"
+            UUID="$(python3 -c "import json;print(json.load(open('matryoshka_dvigatel.json'))['inbounds'][0]['users'][0]['uuid'])")"
             [ -z "$UUID" ] && return 0
-            VJSON=$(printf '{"v":"2","ps":"IPNET-USA","add":"%s","port":"443","id":"%s","aid":"0","net":"ws","type":"none","host":"%s","path":"/ipnet","tls":"tls"}' "$CF_HOST" "$UUID" "$CF_HOST")
+            VJSON=$(printf '{"v":"2","ps":"VOLK-TAYGA","add":"%s","port":"443","id":"%s","aid":"0","net":"ws","type":"none","host":"%s","path":"/taiga","tls":"tls"}' "$CF_HOST" "$UUID" "$CF_HOST")
             LINK="vmess://$(printf '%s' "$VJSON" | base64 -w0)"
-            printf '%s' "$LINK" > android-ss.txt
-            printf '%s' "$LINK" | base64 -w0 > sub.txt
-            export IPNET_LINK="$LINK"
-            echo "sub.txt + android-ss.txt published (vmess link)"
+            printf '%s' "$LINK" > volchiy_sled.txt
+            printf '%s' "$LINK" | base64 -w0 > zayachiy_sled.txt
+            export VOLK_LINK="$LINK"
+            echo "zayachiy_sled.txt + volchiy_sled.txt published (vmess link)"
           }
           update_readme() {
             # Live block goes INSIDE the normal README (no separate file).
-            # Needs <!--IPNET-LIVE-START--> / <!--IPNET-LIVE-END--> markers
+            # Needs <!--VOLK-ZHIVO-START--> / <!--VOLK-ZHIVO-END--> markers
             # (shipped in USER_README.md); appends them if ever missing.
-            [ -z "$LINK" ] && LINK="$IPNET_LINK"
+            [ -z "$LINK" ] && LINK="$VOLK_LINK"
             [ -z "$LINK" ] && return 0
-            export IPNET_LINK="$LINK"
-            export IPNET_SUB="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/sub.txt"
-            export IPNET_REPO="https://github.com/$GITHUB_REPOSITORY"
-            python3 -c 'import os,re; block=("<!--IPNET-LIVE-START-->\n## Live connection (auto-updated, copy from here)\n\n- Repo: "+os.environ["IPNET_REPO"]+"\n\n- v2rayNG link (copy/QR, TLS+WebSocket via Cloudflare):\n```\n"+os.environ["IPNET_LINK"]+"\n```\n\n- Subscription (fixed forever, auto-updates):\n```\n"+os.environ["IPNET_SUB"]+"\n```\n<!--IPNET-LIVE-END-->"); s=open("README.md",encoding="utf-8").read(); pat=re.compile(r"<!--IPNET-LIVE-START-->.*?<!--IPNET-LIVE-END-->",re.S); s=pat.sub(block,s,count=1) if pat.search(s) else s+"\n"+block+"\n"; open("README.md","w",encoding="utf-8").write(s); print("README live block updated")'
+            export VOLK_LINK="$LINK"
+            export VOLK_SUB="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/zayachiy_sled.txt"
+            export VOLK_REPO="https://github.com/$GITHUB_REPOSITORY"
+            python3 -c 'import os,re; block=("<!--VOLK-ZHIVO-START-->\n## Live connection (auto-updated, copy from here)\n\n- Repo: "+os.environ["VOLK_REPO"]+"\n\n- v2rayNG link (copy/QR, TLS+WebSocket via Cloudflare):\n```\n"+os.environ["VOLK_LINK"]+"\n```\n\n- Subscription (fixed forever, auto-updates):\n```\n"+os.environ["VOLK_SUB"]+"\n```\n<!--VOLK-ZHIVO-END-->"); s=open("README.md",encoding="utf-8").read(); pat=re.compile(r"<!--VOLK-ZHIVO-START-->.*?<!--VOLK-ZHIVO-END-->",re.S); s=pat.sub(block,s,count=1) if pat.search(s) else s+"\n"+block+"\n"; open("README.md","w",encoding="utf-8").write(s); print("README live block updated")'
           }
           echo "Starting cloudflared quick tunnel to vmess-ws ..."
           rm -f /tmp/cf.log
@@ -122,28 +122,28 @@ jobs:
           done
           cat /tmp/cf.log
           if [ -z "$CF_HOST" ]; then echo "FATAL: cloudflared gave no URL"; exit 1; fi
-          echo "$CF_HOST" > cf_vmess.txt
+          echo "$CF_HOST" > medvezhiy_sled.txt
           echo "TUNNEL: $CF_HOST"
           make_sub
           update_readme
-          git config user.name "proxy-bot"
-          git config user.email "bot@proxy.usa"
+          git config user.name "medved-bot"
+          git config user.email "bot@taiga.volk"
           git pull --rebase --autostash || true
           # Bury the dead transports: remove their endpoint files + mesh key.
           git rm --quiet bore_url.txt ss_url.txt ss_ygg_url.txt proxy_urls.txt 2>/dev/null || true
           git rm -r --quiet ygg-node 2>/dev/null || true
-          git add cf_vmess.txt android-ss.txt sub.txt README.md || true
+          git add medvezhiy_sled.txt volchiy_sled.txt zayachiy_sled.txt README.md || true
           git commit -m "publish cloudflared $CF_HOST" || true
           git push || true
           echo "### CLOUDFLARE: $CF_HOST" >> $GITHUB_STEP_SUMMARY
 
       - name: Loopback test (VMess+WS+TLS through the public tunnel)
         run: |
-          CF_HOST="$(cat cf_vmess.txt 2>/dev/null | tr -d ' \r\n')"
+          CF_HOST="$(cat medvezhiy_sled.txt 2>/dev/null | tr -d ' \r\n')"
           [ -z "$CF_HOST" ] && { echo "FATAL: no tunnel hostname"; exit 1; }
-          UUID="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0]['users'][0]['uuid'])")"
-          printf '{"log":{"level":"info"},"inbounds":[{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":1082}],"outbounds":[{"type":"vmess","tag":"out","server":"%s","server_port":443,"uuid":"%s","alter_id":0,"tls":{"enabled":true,"server_name":"%s"},"transport":{"type":"ws","path":"/ipnet","headers":{"Host":"%s"}}}]}' "$CF_HOST" "$UUID" "$CF_HOST" "$CF_HOST" > /tmp/sb-cf.json
-          /tmp/sing-box run -c /tmp/sb-cf.json > /tmp/sb-cf.log 2>&1 &
+          UUID="$(python3 -c "import json;print(json.load(open('matryoshka_dvigatel.json'))['inbounds'][0]['users'][0]['uuid'])")"
+          printf '{"log":{"level":"info"},"inbounds":[{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":1082}],"outbounds":[{"type":"vmess","tag":"out","server":"%s","server_port":443,"uuid":"%s","alter_id":0,"tls":{"enabled":true,"server_name":"%s"},"transport":{"type":"ws","path":"/taiga","headers":{"Host":"%s"}}}]}' "$CF_HOST" "$UUID" "$CF_HOST" "$CF_HOST" > /tmp/sb-sled.json
+          /tmp/sing-box run -c /tmp/sb-sled.json > /tmp/sb-cf.log 2>&1 &
           sleep 3
           echo "--- vmess: http via socks-1082 ---"
           curl -s --max-time 30 --socks5-hostname 127.0.0.1:1082 http://httpbin.org/ip && echo "" && echo "CF LEG OK (real traffic)" || { echo "FATAL: CF LEG FAIL"; tail -20 /tmp/sb-cf.log || true; tail -20 /tmp/cf.log || true; exit 1; }
@@ -152,7 +152,7 @@ jobs:
           echo ""
           echo "--- ipinfo (should be US) ---"
           curl -s --max-time 20 --socks5-hostname 127.0.0.1:1082 https://ipinfo.io/json | head -12 || true
-          pkill -f sb-cf.json 2>/dev/null || true
+          pkill -f sb-sled.json 2>/dev/null || true
           echo "ALL LOOPBACK TESTS OK"
 
       - name: Keep alive
@@ -160,25 +160,25 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           make_sub() {
-            CF_HOST="$(cat cf_vmess.txt 2>/dev/null | tr -d ' \r\n')"
+            CF_HOST="$(cat medvezhiy_sled.txt 2>/dev/null | tr -d ' \r\n')"
             [ -z "$CF_HOST" ] && return 0
-            UUID="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0]['users'][0]['uuid'])")"
+            UUID="$(python3 -c "import json;print(json.load(open('matryoshka_dvigatel.json'))['inbounds'][0]['users'][0]['uuid'])")"
             [ -z "$UUID" ] && return 0
-            VJSON=$(printf '{"v":"2","ps":"IPNET-USA","add":"%s","port":"443","id":"%s","aid":"0","net":"ws","type":"none","host":"%s","path":"/ipnet","tls":"tls"}' "$CF_HOST" "$UUID" "$CF_HOST")
+            VJSON=$(printf '{"v":"2","ps":"VOLK-TAYGA","add":"%s","port":"443","id":"%s","aid":"0","net":"ws","type":"none","host":"%s","path":"/taiga","tls":"tls"}' "$CF_HOST" "$UUID" "$CF_HOST")
             LINK="vmess://$(printf '%s' "$VJSON" | base64 -w0)"
-            printf '%s' "$LINK" > android-ss.txt
-            printf '%s' "$LINK" | base64 -w0 > sub.txt
+            printf '%s' "$LINK" > volchiy_sled.txt
+            printf '%s' "$LINK" | base64 -w0 > zayachiy_sled.txt
           }
           push_urls() {
             # $1 = reason label (handover | heal)
             make_sub
-            git config user.name "proxy-bot" || true
-            git config user.email "bot@proxy.usa" || true
+            git config user.name "medved-bot" || true
+            git config user.email "bot@taiga.volk" || true
             git pull --rebase --autostash || true
             git rm --quiet bore_url.txt ss_url.txt ss_ygg_url.txt proxy_urls.txt 2>/dev/null || true
             git rm -r --quiet ygg-node 2>/dev/null || true
-            git add cf_vmess.txt android-ss.txt sub.txt README.md || true
-            git commit -m "cloudflare ${1:-update} [$(cat cf_vmess.txt 2>/dev/null)]" || true
+            git add medvezhiy_sled.txt volchiy_sled.txt zayachiy_sled.txt README.md || true
+            git commit -m "cloudflare ${1:-update} [$(cat medvezhiy_sled.txt 2>/dev/null)]" || true
             git push || true
           }
           # Monitor client: persistent vmess-over-cloudflared on 1081,
@@ -186,12 +186,12 @@ jobs:
           # end-to-end traffic (not a TCP ping) decides health.
           start_monitor() {
             _h="$1"
-            UUID="$(python3 -c "import json;print(json.load(open('singbox-server.json'))['inbounds'][0]['users'][0]['uuid'])")"
-            printf '{"log":{"level":"error"},"inbounds":[{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":1081}],"outbounds":[{"type":"vmess","tag":"out","server":"%s","server_port":443,"uuid":"%s","alter_id":0,"tls":{"enabled":true,"server_name":"%s"},"transport":{"type":"ws","path":"/ipnet","headers":{"Host":"%s"}}}]}' "$_h" "$UUID" "$_h" "$_h" > /tmp/sb-monitor.json
-            pkill -f sb-monitor.json 2>/dev/null || true
+            UUID="$(python3 -c "import json;print(json.load(open('matryoshka_dvigatel.json'))['inbounds'][0]['users'][0]['uuid'])")"
+            printf '{"log":{"level":"error"},"inbounds":[{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":1081}],"outbounds":[{"type":"vmess","tag":"out","server":"%s","server_port":443,"uuid":"%s","alter_id":0,"tls":{"enabled":true,"server_name":"%s"},"transport":{"type":"ws","path":"/taiga","headers":{"Host":"%s"}}}]}' "$_h" "$UUID" "$_h" "$_h" > /tmp/sb-dozor.json
+            pkill -f sb-dozor.json 2>/dev/null || true
             sleep 1
-            /tmp/sing-box run -c /tmp/sb-monitor.json > /tmp/sb-monitor.log 2>&1 &
-            echo "$_h" > /tmp/sbmon.ep
+            /tmp/sing-box run -c /tmp/sb-dozor.json > /tmp/sb-dozitor.log 2>&1 &
+            echo "$_h" > /tmp/sldozor.ep
             sleep 2
             echo "monitor (re)started on 1081 -> $_h"
           }
@@ -232,18 +232,18 @@ jobs:
               cat /tmp/cf.log || true
               return 1
             fi
-            echo "$CF_NEW" > cf_vmess.txt
+            echo "$CF_NEW" > medvezhiy_sled.txt
             echo "new tunnel: $CF_NEW"
             return 0
           }
-          start_monitor "$(cat cf_vmess.txt 2>/dev/null | tr -d ' \r\n')"
+          start_monitor "$(cat medvezhiy_sled.txt 2>/dev/null | tr -d ' \r\n')"
           fail_cf=0; _trouble=0
           for i in $(seq 1 600); do
             echo "[$i/600] $(date -u) - alive"
             # --- generational handover (first iteration only) ---
             if [ "$i" -eq 1 ]; then
               for _rid in $(gh run list --repo "$GITHUB_REPOSITORY" \
-                  --workflow proxy.yml --status in_progress --limit 10 \
+                  --workflow sibirskiy_medved.yml --status in_progress --limit 10 \
                   --json databaseId -q '.[].databaseId' 2>/dev/null); do
                 if [ -n "$_rid" ] && [ "$_rid" -lt "$GITHUB_RUN_ID" ] 2>/dev/null; then
                   echo "retiring older run $_rid (our tunnel verified+published) ..."
@@ -253,19 +253,19 @@ jobs:
               push_urls "handover"
               echo "HANDOVER: predecessors retired, own endpoint republished."
             fi
-            CF_HOST="$(cat cf_vmess.txt 2>/dev/null | tr -d ' \r\n')"
+            CF_HOST="$(cat medvezhiy_sled.txt 2>/dev/null | tr -d ' \r\n')"
             echo "CLOUDFLARE: ${CF_HOST:-none}"
             _pids=""
             for svc in "ss:/tmp/ss.pid" "cf:/tmp/cf.pid"; do
               name=$(echo $svc | cut -d: -f1); pidf=$(echo $svc | cut -d: -f2)
               if kill -0 $(cat $pidf) 2>/dev/null; then _pids="$_pids $name=ok"; else _pids="$_pids $name=DEAD"; fi
             done
-            if pgrep -f sb-monitor.json >/dev/null 2>&1; then _pids="$_pids sbmon=ok"; else _pids="$_pids sbmon=DEAD"; fi
+            if pgrep -f sb-dozor.json >/dev/null 2>&1; then _pids="$_pids sldozor=ok"; else _pids="$_pids sldozor=DEAD"; fi
             echo "pids:$_pids"
             (ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | grep -q ":10086" && echo "vmess listen ok" || { echo "vmess listen DEAD"; _trouble=1; }
             # Rebuild the monitor if it died or the hostname changed.
-            if ! pgrep -f sb-monitor.json >/dev/null 2>&1 \
-              || [ "$(cat /tmp/sbmon.ep 2>/dev/null)" != "$CF_HOST" ]; then
+            if ! pgrep -f sb-dozor.json >/dev/null 2>&1 \
+              || [ "$(cat /tmp/sldozor.ep 2>/dev/null)" != "$CF_HOST" ]; then
               [ -n "$CF_HOST" ] && start_monitor "$CF_HOST"
             fi
             if vmess_alive; then
@@ -276,7 +276,7 @@ jobs:
             # --- auto-heal on FIRST failure: fresh tunnel + republish ---
             if [ "$fail_cf" -ge 1 ]; then
               if restart_tunnel; then
-                CF_HOST="$(cat cf_vmess.txt 2>/dev/null | tr -d ' \r\n')"
+                CF_HOST="$(cat medvezhiy_sled.txt 2>/dev/null | tr -d ' \r\n')"
                 start_monitor "$CF_HOST"
                 if vmess_alive; then
                   push_urls "heal"
@@ -294,7 +294,7 @@ jobs:
               _trouble=0
               echo "--- ss.log tail ---"; tail -5 /tmp/ss.log || true
               echo "--- cf.log tail ---"; tail -10 /tmp/cf.log || true
-              echo "--- sb-monitor.log tail ---"; tail -5 /tmp/sb-monitor.log || true
+              echo "--- sb-dozitor.log tail ---"; tail -5 /tmp/sb-dozitor.log || true
             fi
             sleep 20
           done

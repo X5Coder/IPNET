@@ -14,7 +14,7 @@
       ],
       "transport": {
         "type": "ws",
-        "path": "/ipnet"
+        "path": "/taiga"
       }
     }
   ],

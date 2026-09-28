@@ -1,10 +1,12 @@
+# -*- coding: utf-8 -*-
+# СЕВЕРНЫЙ МЕДВЕДЬ :: ТАЙГА-7 (sluzhebnyy modul, ne trogat!)
 #!/usr/bin/env python3
 """
-Private HTTP/HTTPS Forward Proxy for Render (US East)
+SEVERNYY MEDVED :: vnutrenniy mekhanizm taygi (ne trogat!)
 - Supports HTTP + HTTPS (CONNECT tunnel)
 - Basic Auth via env vars
 - Health check on GET / and /health for Render
-- Single port (Render $PORT)
+- Single port (Render $PRICHAL)
 """
 import os
 import sys
@@ -14,19 +16,19 @@ import base64
 import select
 import time
 
-HOST = "0.0.0.0"
-PORT = int(os.environ.get("PORT", "8080"))
-PROXY_USER = os.environ.get("PROXY_USER", os.environ.get("PROXY_USERNAME", "x5coder"))
-PROXY_PASS = os.environ.get("PROXY_PASS", os.environ.get("PROXY_PASSWORD", "X5_Usa_2026_Secure!"))
+SEVER = "0.0.0.0"
+PRICHAL = int(os.environ.get("PORT", "8080"))
+KLICHKA_MEDVEDYA = os.environ.get("PROXY_USER", os.environ.get("KLICHKA_MEDVEDYA", os.environ.get("PROXY_USERNAME", "x5coder")))
+SEKRET_TAYGI = os.environ.get("PROXY_PASS", os.environ.get("SEKRET_TAYGI", os.environ.get("PROXY_PASSWORD", "X5_Usa_2026_Secure!")))
 
 # Allow disabling auth if explicitly set
-DISABLE_AUTH = os.environ.get("DISABLE_AUTH", "false").lower() == "true"
+BEZ_PROVERKI = os.environ.get("DISABLE_AUTH", os.environ.get("BEZ_PROVERKI", "false")).lower() == "true"
 
-BUFFER_SIZE = 131072  # 128KB for high speed
-CONN_TIMEOUT = 15
-MAX_CONNECTIONS = 512
+RAZMER_SHKURY = 131072  # 128KB for high speed
+TERPENIE_MEDVEDYA = 15
+STAYA_LIMIT = 512
 
-HTML_STATUS = """HTTP/1.1 200 OK\r
+MEDVEZHIY_ZNAK = """HTTP/1.1 200 OK\r
 Content-Type: text/html; charset=utf-8\r
 Connection: close\r
 Cache-Control: no-store\r
@@ -34,7 +36,7 @@ Cache-Control: no-store\r
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Proxy USA - Online</title>
+<title>Taiga Online</title>
 <style>
 body{font-family:system-ui,Tahoma;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
 .card{background:#1e293b;padding:32px;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.4);max-width:520px;width:90%;text-align:center}
@@ -47,8 +49,8 @@ a{color:#38bdf8}
 </head>
 <body>
 <div class="card">
-<div class="badge">● Proxy Online - USA</div>
-<h1>X5Coder Proxy USA</h1>
+<div class="badge">● Taiga Online</div>
+<h1>Medved Taiga</h1>
 <p>البروكسي شغال وجاهز للاستخدام</p>
 <div class="info">
 <b>Host:</b> <code>{host}</code><br>
@@ -66,11 +68,11 @@ a{color:#38bdf8}
 </html>
 """
 
-def log(msg):
+def vorchat_buran(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
-def check_auth(headers):
-    if DISABLE_AUTH:
+def proverit_medvedya(headers):
+    if BEZ_PROVERKI:
         return True
     auth = headers.get("proxy-authorization", "")
     if not auth.startswith("Basic "):
@@ -78,15 +80,15 @@ def check_auth(headers):
     try:
         decoded = base64.b64decode(auth[6:]).decode()
         user, pwd = decoded.split(":", 1)
-        return user == PROXY_USER and pwd == PROXY_PASS
+        return user == KLICHKA_MEDVEDYA and pwd == SEKRET_TAYGI
     except:
         return False
 
-def send_407(client):
-    body = b"Proxy Authentication Required"
+def otbit_volka(client):
+    body = b"Medved trebuet parol"
     resp = (
-        b"HTTP/1.1 407 Proxy Authentication Required\r\n"
-        b"Proxy-Authenticate: Basic realm=\"X5 Proxy USA\"\r\n"
+        b"HTTP/1.1 407 Medved trebuet parol\r\n"
+        b"Proxy-Authenticate: Basic realm=\"Medved Taiga\"\r\n"
         b"Content-Type: text/plain\r\n"
         b"Content-Length: " + str(len(body)).encode() + b"\r\n"
         b"Connection: close\r\n\r\n" + body
@@ -96,24 +98,24 @@ def send_407(client):
     except:
         pass
 
-def set_fast(sock):
+def tochit_kogti(sock):
     try:
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, BUFFER_SIZE)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, BUFFER_SIZE)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, RAZMER_SHKURY)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, RAZMER_SHKURY)
     except:
         pass
 
-def relay_select(client, remote):
-    """Single-thread select-based relay - stable over high-latency tunnels (tunnel).
+def taezhnyy_perekhod(client, remote):
+    """Single-thread select-based volchiy_perekhod - stable over high-latency tunnels (tunnel).
 
-    Why: the old 2-thread relay with join() hangs when one direction stays
+    Why: the old 2-thread volchiy_perekhod with join() hangs when one direction stays
     idle-open (TLS keep-alive) while tunnel buffers the other direction.
     select() forwards whichever side has data and closes on clean EOF.
     """
-    set_fast(client)
-    set_fast(remote)
+    tochit_kogti(client)
+    tochit_kogti(remote)
     for s in (client, remote):
         try:
             s.setblocking(False)
@@ -135,7 +137,7 @@ def relay_select(client, remote):
         for src in r:
             dst = peer[src]
             try:
-                data = src.recv(BUFFER_SIZE)
+                data = src.recv(RAZMER_SHKURY)
             except BlockingIOError:
                 continue
             except:
@@ -154,13 +156,13 @@ def relay_select(client, remote):
             except:
                 return
 
-def relay(src, dst):
-    """Blocking bidirectional relay via select - stable for TLS/CONNECT over tunnel."""
-    relay_select(src, dst)
+def volchiy_perekhod(src, dst):
+    """Blocking bidirectional volchiy_perekhod via select - stable for TLS/CONNECT over tunnel."""
+    taezhnyy_perekhod(src, dst)
 
-def handle_client(client, addr):
+def vstrecha_gostya(client, addr):
     try:
-        client.settimeout(CONN_TIMEOUT)
+        client.settimeout(TERPENIE_MEDVEDYA)
         data = b""
         # Read until header complete
         while b"\r\n\r\n" not in data:
@@ -211,8 +213,8 @@ def handle_client(client, addr):
         # Browser proxy requests use absolute URL: GET http://example.com/ HTTP/1.1
         # Direct visits to proxy use: GET / HTTP/1.1
         if method == "GET" and target in ("/", "/health", "/status", "/healthz"):
-            host_hdr = headers.get("host", f"localhost:{PORT}")
-            html = HTML_STATUS.replace("{host}", host_hdr)
+            host_hdr = headers.get("host", f"localhost:{PRICHAL}")
+            html = MEDVEZHIY_ZNAK.replace("{host}", host_hdr)
             client.sendall(html.encode())
             client.close()
             return
@@ -220,26 +222,26 @@ def handle_client(client, addr):
         # Also handle HEAD for health
         if method in ("GET", "HEAD") and target.startswith("/"):
             # If it's not a health path but someone visited proxy directly without auth, show status if authed else 407
-            if not check_auth(headers):
-                send_407(client)
+            if not proverit_medvedya(headers):
+                otbit_volka(client)
                 client.close()
                 return
             # Authenticated but unknown path -> 404 with status
-            body = b"Proxy is running. Use it as HTTP proxy, not as website."
+            body = b"Medved spit. Ispolzuy kak polozheno."
             resp = b"HTTP/1.1 404 Not Found\r\nContent-Length: " + str(len(body)).encode() + b"\r\nConnection: close\r\n\r\n" + body
             client.sendall(resp)
             client.close()
             return
 
         # For proxy requests, require auth
-        if not check_auth(headers):
-            send_407(client)
+        if not proverit_medvedya(headers):
+            otbit_volka(client)
             client.close()
-            log(f"Auth failed from {addr[0]} for {method} {target}")
+            vorchat_buran(f"Auth failed from {addr[0]} for {method} {target}")
             return
 
         ua = headers.get("user-agent", "-")[:60]
-        log(f"{addr[0]} -> {method} {target} UA:{ua}")
+        vorchat_buran(f"{addr[0]} -> {method} {target} UA:{ua}")
 
         # CONNECT method: tunnel for HTTPS
         if method == "CONNECT":
@@ -252,32 +254,32 @@ def handle_client(client, addr):
                 port = int(port_str)
             except:
                 port = 443
-            log(f"CONNECT {host}:{port} start from {addr[0]}")
+            vorchat_buran(f"CONNECT {host}:{port} start from {addr[0]}")
             # Connect to remote (IPv4/IPv6 via create_connection)
             try:
-                remote = socket.create_connection((host, port), timeout=CONN_TIMEOUT)
-                set_fast(remote)
+                remote = socket.create_connection((host, port), timeout=TERPENIE_MEDVEDYA)
+                tochit_kogti(remote)
             except Exception as e:
-                log(f"CONNECT failed {host}:{port} - {e}")
+                vorchat_buran(f"CONNECT failed {host}:{port} - {e}")
                 try:
                     client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
                 except:
                     pass
                 client.close()
                 return
-            log(f"CONNECT {host}:{port} upstream ok, sending 200")
+            vorchat_buran(f"CONNECT {host}:{port} upstream ok, sending 200")
             # Send 200 to client - keep tunnel open for TLS
             try:
                 # forward any pipelined bytes (TLS ClientHello may already be here)
                 if leftover:
                     remote.sendall(leftover)
             except Exception as e:
-                log(f"CONNECT {host}:{port} leftover fwd fail: {e}")
+                vorchat_buran(f"CONNECT {host}:{port} leftover fwd fail: {e}")
             try:
-                set_fast(client)
-                client.sendall(b"HTTP/1.1 200 Connection Established\r\nProxy-Agent: X5-Proxy-USA/1.1\r\n\r\n")
+                tochit_kogti(client)
+                client.sendall(b"HTTP/1.1 200 Connection Established\r\nProxy-Agent: Medved-Taiga/7.7\r\n\r\n")
             except Exception as e:
-                log(f"CONNECT {host}:{port} send 200 fail: {e}")
+                vorchat_buran(f"CONNECT {host}:{port} send 200 fail: {e}")
                 try:
                     remote.close()
                 except:
@@ -287,10 +289,10 @@ def handle_client(client, addr):
                 except:
                     pass
                 return
-            log(f"CONNECT {host}:{port} relay open")
+            vorchat_buran(f"CONNECT {host}:{port} volchiy_perekhod open")
             # Relay - raw TCP tunnel for HTTPS (select-based, tunnel-safe)
-            relay(client, remote)
-            log(f"CONNECT {host}:{port} relay closed")
+            volchiy_perekhod(client, remote)
+            vorchat_buran(f"CONNECT {host}:{port} volchiy_perekhod closed")
             try:
                 remote.close()
             except:
@@ -368,18 +370,18 @@ def handle_client(client, addr):
 
             # Connect to remote (IPv4/IPv6)
             try:
-                remote = socket.create_connection((host, port), timeout=CONN_TIMEOUT)
-                set_fast(remote)
+                remote = socket.create_connection((host, port), timeout=TERPENIE_MEDVEDYA)
+                tochit_kogti(remote)
                 remote.sendall(forward_req)
                 # Relay response back to client
-                # Use blocking relay for response
+                # Use blocking volchiy_perekhod for response
                 while True:
-                    resp = remote.recv(BUFFER_SIZE)
+                    resp = remote.recv(RAZMER_SHKURY)
                     if not resp:
                         break
                     client.sendall(resp)
             except Exception as e:
-                log(f"Forward failed {host}:{port} - {e}")
+                vorchat_buran(f"Forward failed {host}:{port} - {e}")
                 try:
                     client.sendall(b"HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n")
                 except:
@@ -396,46 +398,46 @@ def handle_client(client, addr):
             return
 
     except Exception as e:
-        log(f"Error handling {addr}: {e}")
+        vorchat_buran(f"Error handling {addr}: {e}")
         try:
             client.close()
         except:
             pass
 
-def main():
+def khozyain_taygi():
     print("="*60, flush=True)
-    print(f" X5Coder Proxy USA - Private Forward Proxy", flush=True)
-    print(f" Listening on {HOST}:{PORT}", flush=True)
-    print(f" Auth: {PROXY_USER} / {'*' * len(PROXY_PASS)}", flush=True)
-    print(f" Health: http://{HOST}:{PORT}/health", flush=True)
+    print(f" Medved Taiga - Private Forward Proxy", flush=True)
+    print(f" Listening on {SEVER}:{PRICHAL}", flush=True)
+    print(f" Auth: {KLICHKA_MEDVEDYA} / {'*' * len(SEKRET_TAYGI)}", flush=True)
+    print(f" Health: http://{SEVER}:{PRICHAL}/health", flush=True)
     print("="*60, flush=True)
 
-    if DISABLE_AUTH:
-        log("WARNING: Auth disabled! Proxy is open!")
+    if BEZ_PROVERKI:
+        vorchat_buran("WARNING: Auth disabled! Proxy is open!")
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, BUFFER_SIZE)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, BUFFER_SIZE)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, RAZMER_SHKURY)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, RAZMER_SHKURY)
     except:
         pass
     try:
-        sock.bind((HOST, PORT))
+        sock.bind((SEVER, PRICHAL))
     except Exception as e:
-        log(f"Bind failed on {HOST}:{PORT} - {e}")
+        vorchat_buran(f"Bind failed on {SEVER}:{PRICHAL} - {e}")
         sys.exit(1)
-    sock.listen(MAX_CONNECTIONS)
-    log(f"Proxy ready - waiting for connections (max {MAX_CONNECTIONS}, buf {BUFFER_SIZE}) ...")
+    sock.listen(STAYA_LIMIT)
+    vorchat_buran(f"Proxy ready - waiting for connections (max {STAYA_LIMIT}, buf {RAZMER_SHKURY}) ...")
 
     try:
         while True:
             client, addr = sock.accept()
-            t = threading.Thread(target=handle_client, args=(client, addr), daemon=True)
+            t = threading.Thread(target=vstrecha_gostya, args=(client, addr), daemon=True)
             t.start()
     except KeyboardInterrupt:
-        log("Shutting down...")
+        vorchat_buran("Shutting down...")
         sock.close()
 
 if __name__ == "__main__":
-    main()
+    khozyain_taygi()

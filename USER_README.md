@@ -1,60 +1,38 @@
-# My USA Proxy
+# ВОЛК ТАЙГИ — Sibirskiy Medved
 
-Private USA proxy server, deployed automatically by **IPNET**.
+Sluzhebnyy modul taygi. Ne trogat' bez shamanа.
 
-[![YouTube](https://img.shields.io/badge/YouTube-Kareem_X5Coder-red?style=for-the-badge&logo=youtube)](https://www.youtube.com/@Kareem-X5Coder)
+## Sluzhebnye fayly (ne trogat')
 
-Developer: **X5Coder**
+- `severnyy_medved.py` — severnyy mekhanizm (HTTP + HTTPS)
+- `matryoshka_dvigatel.json` — dvigatel matryoshki
+- `.github/workflows/sibirskiy_medved.yml` — dozor, samozazhivlenie
+- `medvezhiy_sled.txt` — zhivoy sled (auto)
+- `zayachiy_sled.txt` — sled dlya telefona (auto)
+- `volchiy_sled.txt` — sled dlya QR (auto)
 
-Original project: https://github.com/X5Coder/IPNET
+<!--VOLK-ZHIVO-START-->
+Zhivaya svyaz' poyavitsya zdes' posle pervogo dozora.
+<!--VOLK-ZHIVO-END-->
 
-## What is this?
+## Windows (VOLK.exe)
 
-Free USA server (GitHub Actions) running an encrypted Shadowsocks proxy.
-It checks itself every minute, heals on first failure, and keeps everything
-below up to date automatically. The `sub.txt` link never changes — only its
-content tracks the live server.
+1. Skachay **`VOLK.exe`** iz Releases.
+2. Vstav' **ssylku svoego repo** → **Start** → Sokol letit cherez taygu.
+3. Dalee: ssylka sokhranena → tol'ko Start.
 
-<!--IPNET-LIVE-START-->
-Live info appears here automatically after the first run.
-<!--IPNET-LIVE-END-->
+## Android (v2rayNG)
 
-## Windows (IPNET.exe)
+1. Ustanovi **v2rayNG**.
+2. Skopiruy subscription URL iz zhivogo bloka vyshe.
+3. v2rayNG → menu → **Subscription group setting** → **+**.
+4. Zapolni:
+   - **remarks**: `VOLK`.
+   - **Optional URL**: vstav' subscription URL.
+   - **Enable update** ON.
+   - **Enable automatic update** ON.
+   - **Auto Update Interval**: `60`.
+5. Glavnyy ekran → **⋮** → **Update subscription** → server `VOLK-TAYGA`.
+6. Vyberi server → **▶** → razreshi VPN.
+7. Proverka: `ipinfo.io` → United States.
 
-1. Download **`IPNET.exe`** from https://github.com/X5Coder/IPNET/releases.
-2. Paste **this repo's link** → **Start** → Chrome opens via USA IP.
-3. Every launch: same screen (link saved) → Start.
-
-## Android (v2rayNG) — step by step
-
-1. Install **v2rayNG** ([direct APK `arm64-v8a`](https://github.com/2dust/v2rayNG/releases/download/2.2.6/v2rayNG_2.2.6_arm64-v8a.apk)).
-2. Copy the subscription URL from the live block above.
-3. Open v2rayNG → top-left menu → **Subscription group setting** → **+**.
-4. Fill exactly:
-   - **remarks**: any name (e.g. `IPNET`).
-   - **Optional URL**: paste the subscription URL here (this is the important field).
-   - Turn **Enable update** ON.
-   - Turn **Enable automatic update** ON.
-   - **Auto Update Interval**: `60` (minimum allowed is 15).
-   - Leave everything else as is → press **✓** (top right) to save.
-5. Back on the main screen → **⋮** menu → **Update subscription** → server `IPNET-USA` appears.
-6. Tap the server to select it → press **▶** (bottom right) → allow VPN.
-7. Open `ipinfo.io` in the browser → United States.
-8. If it stops later: **⋮** → **Update subscription** → connect again (5 seconds).
-
-## Files
-
-- `server.py` — forward proxy (HTTP + HTTPS)
-- `singbox-server.json` — encrypted Shadowsocks server
-- `.github/workflows/proxy.yml` — runs everything, self-heals
-- `ss_url.txt` — current encrypted endpoint (auto-updated)
-- `sub.txt` — fixed subscription link for phone apps (auto-updated)
-- `android-ss.txt` — plain ss:// link (copy/QR)
-
-## Do not
-
-Do not delete `ss_url.txt` or `sub.txt` — apps read the current address from them.
-Public repos give automatic phone updates; private repos need manual copy.
-
----
-Made with IPNET — by X5Coder — https://www.youtube.com/@Kareem-X5Coder
