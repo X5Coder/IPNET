@@ -30,7 +30,7 @@ import urllib.request
 import zipfile
 
 IMYA_ZVERYA = "IPNET"
-VERSIYA_ZVERYA = "v2.1.6"
+VERSIYA_ZVERYA = "v2.1.7"
 DOROGA_K_LOGOVU = "https://github.com/X5Coder/IPNET"
 KHOZYAIN_LESA = "X5Coder"
 SYROY_SLED = "https://raw.githubusercontent.com"
@@ -815,12 +815,20 @@ def tsepochka_volka():
 
 
 def dykhanie_zverya(pid):
+    """True only if PID is alive AND is really IPNET (not a recycled PID)."""
     try:
         if os.name == "nt":
-            out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+            out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH",
+                                  "/FO", "TABLE"],
                                  capture_output=True, text=True, timeout=15,
                                  **_si_nabor())
-            return str(pid) in (out.stdout or "")
+            txt = (out.stdout or "")
+            if str(pid) not in txt:
+                return False
+            low = txt.lower()
+            # PID numbers get recycled: a stale lock must not block a
+            # fresh launch just because Windows reused the number.
+            return ("ipnet" in low or "volk" in low or "python" in low)
         os.kill(pid, 0)
         return True
     except Exception:
@@ -828,13 +836,18 @@ def dykhanie_zverya(pid):
 
 
 def otpustit_tsep():
-    """Remove app.lock, but only if WE own it."""
+    """Remove app.lock, but only if WE own it (retry: AV/indexer locks)."""
     try:
         lp = tsepochka_volka()
         if lp and os.path.exists(lp) and \
                 (open(lp, "r", encoding="utf-8").read()
                  or "").strip().split("|")[0] == str(os.getpid()):
-            os.remove(lp)
+            for _ in range(5):
+                try:
+                    os.remove(lp)
+                    break
+                except Exception:
+                    time.sleep(0.5)
     except Exception:
         pass
 
@@ -853,10 +866,15 @@ def odin_volk_v_lesu():
     me = os.getpid()
     if not lp:
         return
-    import atexit
-
-    def otpustit_kozhu():
-        otpustit_tsep()
+    try:
+        import atexit
+        try:
+            atexit.unregister(otpustit_tsep)
+        except Exception:
+            pass
+        atexit.register(otpustit_tsep)
+    except Exception:
+        pass
 
     def gryzt_tsep():
         try:
@@ -874,7 +892,6 @@ def odin_volk_v_lesu():
         try:
             with open(lp, "w", encoding="utf-8") as f:
                 f.write(f"{me}|{VERSIYA_ZVERYA}")
-            atexit.register(otpustit_kozhu)
         except Exception:
             pass
 
@@ -891,31 +908,20 @@ def odin_volk_v_lesu():
             return False
 
     lock_pid, lock_ver = gryzt_tsep()
-    if lock_pid and lock_pid != me and dykhanie_zverya(lock_pid):
-        if lock_ver == VERSIYA_ZVERYA:
-            shepchit_les(f"IPNET {VERSIYA_ZVERYA} is already running (pid {lock_pid}) - "
-                 f"exiting. (One copy only.)",
-                 flush=True)
-            if getattr(sys, "frozen", False):
-                try:
-                    from tkinter import messagebox
-                    messagebox.showinfo(
-                        "IPNET",
-                        f"IPNET {VERSIYA_ZVERYA} is already running.\n\n"
-                        "Look for its window (Alt+Tab) instead of\n"
-                        "starting a second copy.")
-                except Exception:
-                    pass
-                sys.exit(0)
-            try:
-                input("Press Enter to close ...")
-            except Exception:
-                pass
-            sys.exit(0)
-        shepchit_les(f"[mgr] taking over from older {lock_ver or 'unknown'} "
-             f"(pid {lock_pid}) ...", flush=True)
-        zakopat_dobychu(lock_pid)
-        time.sleep(3)
+    if lock_pid and lock_pid != me:
+        if lock_pid == me:
+            pass  # our own stale entry, just re-own below
+        elif dykhanie_zverya(lock_pid):
+            # Same-version takeover: the old window is dead weight (user
+            # closed it, process lingered). Kill it ONCE and proceed -
+            # closing IPNET always means a clean restart next launch.
+            shepchit_les(f"[mgr] replacing live {lock_ver} (pid {lock_pid}) ...",
+                         flush=True)
+            zakopat_dobychu(lock_pid)
+            time.sleep(3)
+        else:
+            shepchit_les(f"[mgr] stale lock (pid {lock_pid} gone) - re-owned.",
+                         flush=True)
     # No live lock: pre-mutex copies (v1.6.2 and older) never wrote one.
     # The startup sweep below closes them once; this guard then owns it.
     skhvatit_dobychu()
@@ -1570,10 +1576,27 @@ def ataman_taygi():
     # Start click, no UAC. One manager per machine.
     razognat_chuzhuyu_stayu()
     try:
-        # Same screen on EVERY launch, prefilled with the last saved link.
+        # Closing the setup window = full shutdown, every time:
+        # sing-box child dies here, the lock dies explicitly below
+        # (atexit alone is unreliable for windowed EXE kills).
         while True:
             cfg = sovet_stareyshin()
             if not cfg:
+                try:
+                    import subprocess as _sp
+                    if os.name == "nt":
+                        _sp.run(["taskkill", "/F", "/IM", "sing-box.exe"],
+                                capture_output=True, timeout=10, **_si_nabor())
+                    else:
+                        _sp.run(["pkill", "-f", "sb-client.json"],
+                                capture_output=True, timeout=10)
+                except Exception:
+                    pass
+                otpustit_tsep()
+                try:
+                    os._exit(0)
+                except Exception:
+                    pass
                 return  # user closed the window
             try:
                 voy_volka(cfg)
