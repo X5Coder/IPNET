@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v3.2.0"
+APP_VERSION = "v3.3.0"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -246,10 +246,8 @@ def _valid_cf_host(v):
 def fetch_public_repo_snapshot(owner, repo):
     """Read-only check of a PUBLIC repo (no login). Returns
     {endpoint, endpoint_file, uuid, has_code}.
-    v3.2: the endpoint can ALSO be typed directly in the app (Worker box)
-    so worker.txt is optional — no Commit step needed at all.
-    Priority: worker.txt (written once) -> legacy cf_vmess.txt.
-    Auth is the UUID in singbox-server.json; legacy installs keep working."""
+    v3.3: repo link ONLY — endpoint comes from worker.txt in the repo
+    (written once after Worker deploy). No second Worker field."""
     base = f"{RAW}/{owner}/{repo}/main"
     endpoint = _valid_worker_host(raw_get(f"{base}/worker.txt", bust=True))
     endpoint_file = "worker.txt" if endpoint else ""
@@ -264,13 +262,12 @@ def fetch_public_repo_snapshot(owner, repo):
             "uuid": uuid, "has_code": has_code}
 
 
-def setup_attach(repo_text, log, override_host=""):
+def setup_attach(repo_text, log):
     """Follow-only attach (public repos only, no login, no token).
-    Pulls endpoint+password from the repo's public files and saves them.
-    v3.2: override_host (the Worker box in the app) wins over worker.txt,
-    so the user NEVER has to Commit anything — paste + Start, done.
+    v3.3: repo link ONLY — endpoint comes from worker.txt in the repo
+    (written once after Worker deploy). No second field, no override.
     Raises RuntimeError with a plain message when there is nothing
-    usable yet (wrong link / still building / code missing)."""
+    usable yet (wrong link / action not finished yet / code missing)."""
     parsed = parse_repo_url(repo_text or "")
     if not parsed:
         raise RuntimeError("Paste a repo link, e.g. https://github.com/YOU/my-proxy")
@@ -284,25 +281,18 @@ def setup_attach(repo_text, log, override_host=""):
         raise RuntimeError("Code found but user ID unreadable - recreate from template.")
     cfg = {"owner": owner, "repo": repo, "uuid": snap["uuid"],
            "attached": True, "readonly": True}
-    if override_host:
-        cfg["worker_host"] = override_host
-        save_config(cfg)
-        log(f"Attached! Worker: {override_host}")
-        return cfg
+    cfg.pop("worker_host", None)  # v3.3: no override field anymore
     save_config(cfg)
     if snap["endpoint"]:
-        log(f"Attached! Live tunnel: {snap['endpoint']}")
+        log(f"Attached! Server: {snap['endpoint']}")
         return cfg
-    # First build still running: WAIT here (up to ~12 min) with live
-    # progress, so the window only closes into run mode (and Chrome)
-    # when there is something to connect to.
-    # v3.2: worker.txt is OPTIONAL — the endpoint may come from the Worker
-    # box the user typed in the app (override_host), no Commit needed.
-    log("Server is building for the first time - waiting for it ...")
+    # Action not finished yet: WAIT here with live progress, so Start
+    # only finishes when worker.txt is published (user watches Actions once).
+    log("Waiting for the setup action (paste worker.txt, then watch Actions) ...")
     started = time.time()
     for _i in range(48):
         time.sleep(15)
-        v = (override_host or "") or _valid_worker_host(
+        v = _valid_worker_host(
             raw_get(f"{RAW}/{owner}/{repo}/main/worker.txt", bust=True))
         if not v:
             v = _valid_cf_host(
@@ -573,20 +563,6 @@ def gui_setup(error_msg=""):
              insertbackground=INK).pack(fill="x", pady=3)
     hairline()
 
-    tk.Label(wrap, text="3  —  Your Worker address (no Commit needed)",
-             bg=PAPER, fg=INK, font=("Segoe UI", 9, "bold")).pack(anchor="w")
-    tk.Label(wrap, text="Paste the .workers.dev hostname from Cloudflare "
-                        "(e.g. ipnet-usa-you.workers.dev). Saved on your PC "
-                        "only — optional if you already wrote worker.txt.",
-             bg=PAPER, fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 2))
-    _saved_worker = (saved_cfg.get("worker_host", "") or "")
-    worker_var = tk.StringVar(value=_saved_worker)
-    tk.Entry(wrap, textvariable=worker_var, bg=FIELD, fg=INK, relief="solid",
-             borderwidth=1, highlightthickness=1, highlightcolor=INK,
-             highlightbackground=HAIR, font=("Segoe UI", 9),
-             insertbackground=INK).pack(fill="x", pady=3)
-    hairline()
-
     tk.Label(wrap, text="Paste the link, press Start. No login, no tokens.",
              bg=PAPER, fg=MUTED, font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 12))
 
@@ -641,13 +617,7 @@ def gui_setup(error_msg=""):
 
         root.update()
         try:
-            _ov = _valid_worker_host((worker_var.get() or ""))
-            if (worker_var.get() or "").strip() and not _ov:
-                status.set("Worker address looks wrong - e.g. ipnet-usa-you.workers.dev")
-                enabled["v"] = True
-                btn.set_enabled(True)
-                return
-            cfg = setup_attach(link, log, override_host=_ov)
+            cfg = setup_attach(link, log)
             result["cfg"] = cfg
             status.set("Ready! Starting ...")
             pb.stop()
@@ -1432,12 +1402,10 @@ def run_terminal(cfg):
 
     try:
         while True:
-            # v3.2: saved worker_host (typed in the app) wins — no Commit needed.
-            cf_host = _valid_worker_host(cfg.get("worker_host", "") or "")
-            if not cf_host:
-                cf_host = _valid_worker_host(raw_get(
-                    f"{RAW}/{cfg['owner']}/{cfg['repo']}/main/worker.txt",
-                    bust=True))
+            # v3.3: repo link is the ONLY input — worker.txt in the repo wins.
+            cf_host = _valid_worker_host(raw_get(
+                f"{RAW}/{cfg['owner']}/{cfg['repo']}/main/worker.txt",
+                bust=True))
             if not cf_host:
                 # legacy installs still publishing cf_vmess.txt
                 cf_host = _valid_cf_host(raw_get(
