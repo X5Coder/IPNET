@@ -64,6 +64,8 @@ function parseVlessHeader(buf, validUuid) {
     off += 4;
   } else if (typ === 2) {
     var len = v.getUint8(off); off += 1;
+    // Bounds-check: sing-box can split the header across WS frames.
+    if (off + len > buf.byteLength) throw new Error("frag");
     addr = new TextDecoder().decode(buf.slice(off, off + len));
     off += len;
   } else if (typ === 3) {
@@ -80,14 +82,27 @@ async function handleVlessWs(request, env) {
   var pair = new WebSocketPair();
   var client = pair[0], server = pair[1];
   server.accept();
-  var upstream = null, writer = null, first = true;
+  var upstream = null, writer = null, firstBuf = null;
+  function feedWs(chunk) {
+    // Reassemble split VLESS headers: append until parseable, then stream.
+    if (firstBuf) {
+      var nb = new Uint8Array(firstBuf.length + chunk.length);
+      nb.set(firstBuf, 0); nb.set(chunk, firstBuf.length);
+      chunk = nb; firstBuf = null;
+    }
+    return chunk;
+  }
   server.addEventListener("message", async function (ev) {
     try {
       var raw = ev.data instanceof ArrayBuffer ? ev.data : await ev.data.arrayBuffer();
-      if (first) {
-        first = false;
-        var data = new Uint8Array(raw);
-        var h = parseVlessHeader(data, valid);
+      if (!writer) {
+        var data = feedWs(new Uint8Array(raw));
+        var h;
+        try { h = parseVlessHeader(data, valid); }
+        catch (e2) {
+          if (String((e2 && e2.message) || "") === "frag") { firstBuf = data; return; }
+          throw e2;
+        }
         var rest = data.slice(h.headerLen);
         server.send(new Uint8Array([0, 0]).buffer);
         upstream = await connect({ hostname: h.addr.replace(/^\[|\]$/g, ""), port: h.port });
