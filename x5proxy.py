@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v3.4.1"
+APP_VERSION = "v3.5.0"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -225,6 +225,20 @@ def extract_uuid_from_repo_text(singbox_text=""):
     return ""
 
 
+# Shared proxy login for every Render deploy (public-proxy design:
+# same idea as the shared Worker uuid — zero config for beginners).
+RENDER_USER = "x5coder"
+RENDER_PASS = "X5_Usa_2026_Secure!"
+
+
+def _valid_render_host(v):
+    """'xxx.onrender.com' -> itself or ''. v3.5: Render free web service
+    (Oregon = US) running server.py — real TCP sockets, works on free plan."""
+    v = (v or "").strip().lower()
+    v = re.sub(r"^https?://", "", v).split("/")[0].split(":")[0]
+    return v if re.match(r"^[a-z0-9-]+(\.[a-z0-9-]+)*\.onrender\.com$", v) else ""
+
+
 def _valid_worker_host(v):
     """'xxx.workers.dev' -> itself or ''. New in v3: the endpoint is the
     user's OWN Cloudflare Worker hostname (worker.txt, written once),
@@ -245,12 +259,19 @@ def _valid_cf_host(v):
 
 def fetch_public_repo_snapshot(owner, repo):
     """Read-only check of a PUBLIC repo (no login). Returns
-    {endpoint, endpoint_file, uuid, has_code}.
-    v3.3: repo link ONLY — endpoint comes from worker.txt in the repo
-    (written once after Worker deploy). No second Worker field."""
+    {endpoint, endpoint_file, uuid, has_code, mode}.
+    v3.5: Render FIRST (render.txt = xxx.onrender.com running server.py,
+    real CONNECT proxy on 443 through Render TLS), Worker second
+    (worker.txt), legacy cf_vmess.txt last. Repo link is still the ONLY
+    input — endpoint files are written once, never every minute."""
     base = f"{RAW}/{owner}/{repo}/main"
-    endpoint = _valid_worker_host(raw_get(f"{base}/worker.txt", bust=True))
-    endpoint_file = "worker.txt" if endpoint else ""
+    endpoint = _valid_render_host(raw_get(f"{base}/render.txt", bust=True))
+    endpoint_file = "render.txt" if endpoint else ""
+    mode = "render" if endpoint else ""
+    if not endpoint:
+        endpoint = _valid_worker_host(raw_get(f"{base}/worker.txt", bust=True))
+        endpoint_file = "worker.txt" if endpoint else ""
+        mode = "worker" if endpoint else ""
     if not endpoint:
         endpoint = _valid_cf_host(raw_get(f"{base}/cf_vmess.txt", bust=True))
         endpoint_file = "cf_vmess.txt" if endpoint else ""
@@ -259,13 +280,14 @@ def fetch_public_repo_snapshot(owner, repo):
     has_code = bool(singbox_text or workflow_text)
     uuid = extract_uuid_from_repo_text(singbox_text)
     return {"endpoint": endpoint, "endpoint_file": endpoint_file,
-            "uuid": uuid, "has_code": has_code}
+            "uuid": uuid, "has_code": has_code, "mode": mode}
 
 
 def setup_attach(repo_text, log):
     """Follow-only attach (public repos only, no login, no token).
-    v3.3: repo link ONLY — endpoint comes from worker.txt in the repo
-    (written once after Worker deploy). No second field, no override.
+    v3.5: repo link ONLY — endpoint comes from render.txt (Render Oregon,
+    preferred) or worker.txt (Worker fallback), written once. No second
+    field, no override.
     Raises RuntimeError with a plain message when there is nothing
     usable yet (wrong link / action not finished yet / code missing)."""
     parsed = parse_repo_url(repo_text or "")
@@ -287,13 +309,16 @@ def setup_attach(repo_text, log):
         log(f"Attached! Server: {snap['endpoint']}")
         return cfg
     # Action not finished yet: WAIT here with live progress, so Start
-    # only finishes when worker.txt is published (user watches Actions once).
-    log("Waiting for the setup action (paste worker.txt, then watch Actions) ...")
+    # only finishes when render.txt / worker.txt is published.
+    log("Waiting for the setup action (paste render.txt, then watch Actions) ...")
     started = time.time()
     for _i in range(48):
         time.sleep(15)
-        v = _valid_worker_host(
-            raw_get(f"{RAW}/{owner}/{repo}/main/worker.txt", bust=True))
+        v = _valid_render_host(
+            raw_get(f"{RAW}/{owner}/{repo}/main/render.txt", bust=True))
+        if not v:
+            v = _valid_worker_host(
+                raw_get(f"{RAW}/{owner}/{repo}/main/worker.txt", bust=True))
         if not v:
             v = _valid_cf_host(
                 raw_get(f"{RAW}/{owner}/{repo}/main/cf_vmess.txt", bust=True))
@@ -958,11 +983,25 @@ def kill_other_managers():
     time.sleep(3)  # let ports settle before binding
 
 
-def build_client_cfg(host, uuid):
-    """Local sing-box: mixed inbound on 1080, VLESS+WS+TLS outbound
-    through the user's OWN Worker (TLS terminates at the edge,
-    origin is plain WS). Port is always 443. v3: VMess replaced by
-    VLESS (Workers have no VMess alterId quirks; encryption=none)."""
+def build_client_cfg(host, uuid, mode="worker"):
+    """Local sing-box: mixed inbound on 1080.
+    mode=render: HTTP outbound through YOUR Render service
+    (server.py CONNECT proxy, TLS on 443, shared user/pass).
+    mode=worker: VLESS+WS+TLS outbound through your Worker (legacy)."""
+    if mode == "render":
+        import base64
+        auth = base64.b64encode(
+            f"{RENDER_USER}:{RENDER_PASS}".encode()).decode()
+        return {
+            "log": {"level": "error"},
+            "inbounds": [{"type": "mixed", "tag": "in",
+                          "listen": "127.0.0.1",
+                          "listen_port": LOCAL_SOCKS_PORT}],
+            "outbounds": [{"type": "http", "tag": "out",
+                           "server": host, "server_port": 443,
+                           "username": RENDER_USER, "password": RENDER_PASS,
+                           "tls": {"enabled": True, "server_name": host}}],
+        }
     return {
         "log": {"level": "error"},
         "inbounds": [{"type": "mixed", "tag": "in",
@@ -1360,13 +1399,13 @@ def run_terminal(cfg):
         else:
             open_usa_chrome(chrome)
 
-    def switch_to(host, why):
-        """Rebuild local sing-box for the tunnel hostname and restart."""
+    def switch_to(host, why, mode="worker"):
+        """Rebuild local sing-box for the hostname and restart."""
         nonlocal proc, tun_log
         if not host:
             slog(f"[switch] {why}: BAD hostname - skipped.", flush=True)
             return False
-        ccfg = build_client_cfg(host, cfg["uuid"])
+        ccfg = build_client_cfg(host, cfg["uuid"], mode=mode)
         with open(client_cfg, "w", encoding="utf-8") as f:
             json.dump(ccfg, f)
         stop_tunnel(proc, tun_log)
@@ -1402,10 +1441,17 @@ def run_terminal(cfg):
 
     try:
         while True:
-            # v3.3: repo link is the ONLY input — worker.txt in the repo wins.
-            cf_host = _valid_worker_host(raw_get(
-                f"{RAW}/{cfg['owner']}/{cfg['repo']}/main/worker.txt",
+            # v3.5: Render (render.txt) FIRST, Worker second, legacy last.
+            r_host = _valid_render_host(raw_get(
+                f"{RAW}/{cfg['owner']}/{cfg['repo']}/main/render.txt",
                 bust=True))
+            if r_host:
+                cf_host, cf_mode = r_host, "render"
+            else:
+                cf_host = _valid_worker_host(raw_get(
+                    f"{RAW}/{cfg['owner']}/{cfg['repo']}/main/worker.txt",
+                    bust=True))
+                cf_mode = "worker" if cf_host else ""
             if not cf_host:
                 # legacy installs still publishing cf_vmess.txt
                 cf_host = _valid_cf_host(raw_get(
@@ -1449,8 +1495,9 @@ def run_terminal(cfg):
                     cur = cf_host
                     if cf_host == skip_logged:
                         skip_logged = ""  # retrying it now
-                    alive = switch_to(cf_host, "tunnel renewed"
-                                      if not first_run else "initial connect")
+                    alive = switch_to(cf_host, "server renewed"
+                                      if not first_run else "initial connect",
+                                      mode=(cf_mode or "worker"))
                     if first_run and not alive:
                         slog("[net] tunnel not reachable on startup - "
                              "following its fresh hostname ...", flush=True)
@@ -1463,7 +1510,7 @@ def run_terminal(cfg):
                         slog("  PROXY CONNECTED")
                         slog(f"  Country : {_cc}" + (f" ({_city})" if _city else ""))
                         slog(f"  Your IP : {_ip or 'checking...'}  (verify: https://ipleak.net/)")
-                        slog(f"  Server  : {cf_host}  (Cloudflare tunnel, VMess+WS+TLS)")
+                        slog(f"  Server  : {cf_host}  (Render Oregon USA, HTTP+TLS)" if (cf_mode or "") == "render" else f"  Server  : {cf_host}  (Cloudflare worker, VLESS+WS+TLS)")
                         slog(f"  Local   : 127.0.0.1:{LOCAL_SOCKS_PORT}  (SOCKS5 + HTTP - use in any app)")
                         slog(f"  Repo    : {cfg['owner']}/{cfg['repo']}")
                         slog("=" * 60, flush=True)

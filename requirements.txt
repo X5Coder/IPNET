@@ -1,0 +1,2 @@
+# Render free web service — no build step, stdlib only.
+# server.py uses only the Python standard library, so nothing to install.

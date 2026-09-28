@@ -1,0 +1,19 @@
+services:
+  # IPNET USA proxy on Render free (Oregon = US). No visa, signup with email/GitHub.
+  # server.py is stdlib-only: real HTTP/CONNECT proxy + /health for Render checks.
+  # Shared public-proxy design (same as Worker uuid): fixed user/pass for all,
+  # so zero config — copy + Deploy + render.txt + Start, done.
+  - type: web
+    name: ipnet-usa
+    runtime: python
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    healthCheckPath: /health
+    envVars:
+      - key: PROXY_USER
+        value: x5coder
+      - key: PROXY_PASS
+        value: X5_Usa_2026_Secure!
