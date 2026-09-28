@@ -54,12 +54,18 @@ function parseVlessHeader(buf, validUuid) {
   if (v.getUint8(0) !== 0) throw new Error("ver");
   for (var i = 0; i < 16; i++) if (v.getUint8(1 + i) !== validUuid[i]) throw new Error("uuid");
   var off = 1 + 16 + 1 + v.getUint8(1 + 16);
-  if (v.getUint8(off) !== 1) throw new Error("cmd");
+  var cmd = v.getUint8(off);
+  // cmd 1 = TCP, 2 = UDP. Workers has no UDP sockets: answer UDP with a
+  // clean close (NOT 1008) so sing-box falls back to TCP instead of dying.
+  if (cmd === 2) throw new Error("udp");
+  if (cmd !== 1) throw new Error("cmd");
   off += 1;
   var port = v.getUint16(off); off += 2;
   var typ = v.getUint8(off); off += 1;
   var addr = "";
+  // VLESS atyp: 1 = IPv4, 2 = Domain, 3 = IPv6.
   if (typ === 1) {
+    if (off + 4 > buf.byteLength) throw new Error("frag");
     addr = v.getUint8(off) + "." + v.getUint8(off+1) + "." + v.getUint8(off+2) + "." + v.getUint8(off+3);
     off += 4;
   } else if (typ === 2) {
@@ -101,6 +107,7 @@ async function handleVlessWs(request, env) {
         try { h = parseVlessHeader(data, valid); }
         catch (e2) {
           if (String((e2 && e2.message) || "") === "frag") { firstBuf = data; return; }
+          if (String((e2 && e2.message) || "") === "udp") { try { server.close(); } catch (_) {} return; }
           throw e2;
         }
         var rest = data.slice(h.headerLen);
