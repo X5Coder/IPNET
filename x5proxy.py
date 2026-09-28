@@ -28,7 +28,7 @@ import urllib.request
 import zipfile
 
 APP_NAME = "IPNET"
-APP_VERSION = "v2.1.0"
+APP_VERSION = "v3.0.0"
 TEMPLATE_URL = "https://github.com/X5Coder/IPNET"
 APP_AUTHOR = "X5Coder"
 RAW = "https://raw.githubusercontent.com"
@@ -225,20 +225,36 @@ def extract_uuid_from_repo_text(singbox_text=""):
     return ""
 
 
-def _valid_cf_host(v):
-    """'abc123.trycloudflare.com' -> itself or ''."""
+def _valid_worker_host(v):
+    """'xxx.workers.dev' -> itself or ''. New in v3: the endpoint is the
+    user's OWN Cloudflare Worker hostname (worker.txt, written once),
+    not a trycloudflare tunnel rewritten every minute (that spam is what
+    got fresh accounts banned)."""
     v = (v or "").strip().lower()
-    return v if re.match(r"^[a-z0-9-]+\.trycloudflare\.com$", v) else ""
+    v = re.sub(r"^https?://", "", v).split("/")[0]
+    return v if re.match(r"^[a-z0-9-]+(\.[a-z0-9-]+)*\.workers\.dev$", v) else ""
+
+
+def _valid_cf_host(v):
+    # Back-compat alias: old cf_vmess.txt hostnames still accepted if seen.
+    v = (v or "").strip().lower()
+    if re.match(r"^[a-z0-9-]+\.trycloudflare\.com$", v):
+        return v
+    return _valid_worker_host(v)
 
 
 def fetch_public_repo_snapshot(owner, repo):
     """Read-only check of a PUBLIC repo (no login). Returns
     {endpoint, endpoint_file, uuid, has_code}.
-    Cloudflare era: the endpoint is the tunnel hostname in cf_vmess.txt,
-    auth is the VMess UUID in singbox-server.json."""
+    v3: the endpoint is the user's OWN Worker hostname in worker.txt
+    (written ONCE after deploy), auth is the UUID in singbox-server.json.
+    Legacy cf_vmess.txt is still accepted for old installs."""
     base = f"{RAW}/{owner}/{repo}/main"
-    endpoint = _valid_cf_host(raw_get(f"{base}/cf_vmess.txt", bust=True))
-    endpoint_file = "cf_vmess.txt" if endpoint else ""
+    endpoint = _valid_worker_host(raw_get(f"{base}/worker.txt", bust=True))
+    endpoint_file = "worker.txt" if endpoint else ""
+    if not endpoint:
+        endpoint = _valid_cf_host(raw_get(f"{base}/cf_vmess.txt", bust=True))
+        endpoint_file = "cf_vmess.txt" if endpoint else ""
     singbox_text = raw_get(f"{base}/singbox-server.json", bust=True)
     workflow_text = raw_get(f"{base}/.github/workflows/proxy.yml", bust=True)
     has_code = bool(singbox_text or workflow_text)
@@ -276,8 +292,11 @@ def setup_attach(repo_text, log):
     started = time.time()
     for _i in range(48):
         time.sleep(15)
-        v = _valid_cf_host(
-            raw_get(f"{RAW}/{owner}/{repo}/main/cf_vmess.txt", bust=True))
+        v = _valid_worker_host(
+            raw_get(f"{RAW}/{owner}/{repo}/main/worker.txt", bust=True))
+        if not v:
+            v = _valid_cf_host(
+                raw_get(f"{RAW}/{owner}/{repo}/main/cf_vmess.txt", bust=True))
         if v:
             log(f"Ready! Tunnel: {v}")
             return cfg
@@ -940,17 +959,18 @@ def kill_other_managers():
 
 
 def build_client_cfg(host, uuid):
-    """Local sing-box: mixed inbound on 1080, VMess+WS+TLS outbound
-    through the Cloudflare quick tunnel (TLS terminates at the edge,
-    origin is plain WS). Port is always 443."""
+    """Local sing-box: mixed inbound on 1080, VLESS+WS+TLS outbound
+    through the user's OWN Worker (TLS terminates at the edge,
+    origin is plain WS). Port is always 443. v3: VMess replaced by
+    VLESS (Workers have no VMess alterId quirks; encryption=none)."""
     return {
         "log": {"level": "error"},
         "inbounds": [{"type": "mixed", "tag": "in",
                       "listen": "127.0.0.1",
                       "listen_port": LOCAL_SOCKS_PORT}],
-        "outbounds": [{"type": "vmess", "tag": "out",
+        "outbounds": [{"type": "vless", "tag": "out",
                        "server": host, "server_port": 443,
-                       "uuid": uuid, "alter_id": 0,
+                       "uuid": uuid,
                        "tls": {"enabled": True, "server_name": host},
                        "transport": {"type": "ws", "path": "/ipnet",
                                      "headers": {"Host": host}}}],
@@ -1382,10 +1402,15 @@ def run_terminal(cfg):
 
     try:
         while True:
-            # ---- 1) fresh tunnel hostname, logged on change ----
-            cf_host = _valid_cf_host(raw_get(
-                f"{RAW}/{cfg['owner']}/{cfg['repo']}/main/cf_vmess.txt",
+            # ---- 1) fresh Worker hostname, logged on change ----
+            cf_host = _valid_worker_host(raw_get(
+                f"{RAW}/{cfg['owner']}/{cfg['repo']}/main/worker.txt",
                 bust=True))
+            if not cf_host:
+                # legacy installs still publishing cf_vmess.txt
+                cf_host = _valid_cf_host(raw_get(
+                    f"{RAW}/{cfg['owner']}/{cfg['repo']}/main/cf_vmess.txt",
+                    bust=True))
             # Instant path: while the tunnel is down the branch raw URL can
             # lag ~5 min (CDN cache), so ask the commits API for the fresh
             # SHA (throttled, ~90s) and jump straight to the new hostname.

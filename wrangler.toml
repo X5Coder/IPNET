@@ -1,0 +1,10 @@
+name = "ipnet-usa"
+main = "worker.js"
+compatibility_date = "2024-09-25"
+
+# The user fills these in the Cloudflare dashboard after Deploy:
+#   REPO = https://github.com/YOU/YOUR-REPO   (uuid is read from singbox-server.json)
+#   UUID = optional override (36-char id)
+[vars]
+REPO = ""
+UUID = ""
