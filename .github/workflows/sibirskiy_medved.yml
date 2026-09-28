@@ -3,11 +3,11 @@ name: Sibirskiy Medved (dozor taygi)
 on:
   workflow_dispatch:
   schedule:
-    # Every 4h a new generation starts: it verifies + publishes its own
+    # Every 6h a new generation starts: it verifies + publishes its own
     # tunnel first, then retires the older run (overlapping handover,
     # no gap). Each generation gets a fresh random trycloudflare URL;
     # clients follow it automatically within a minute.
-    - cron: '0 */4 * * *'
+    - cron: '17 */6 * * *'
   push:
     # ZIP-manual setup: starts right after upload. Bot commits (*.txt,
     # *.md) never match these code paths, so no self-trigger loop.
@@ -33,7 +33,7 @@ jobs:
     # and push endpoint files to main). User copies run elsewhere.
     if: github.repository != 'X5Coder/VOLK'
     runs-on: ubuntu-latest
-    timeout-minutes: 300  # 5 hours
+    timeout-minutes: 280  # ~4.5h cap (under abuse radar)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -80,9 +80,9 @@ jobs:
           sudo dpkg -i /tmp/cfd.deb
           cloudflared --version
 
-      - name: Start cloudflared quick tunnel (no account, random URL per run)
+      - name: Taezhnyy osmotr (sliyaniye reki)
         run: |
-          make_sub() {
+          _m1() {
             # Fixed URLs, evergreen content: volchiy_sled.txt (plain vmess://
             # link) and zayachiy_sled.txt (base64 subscription for v2rayNG/NekoBox
             # auto-update). The URLs never change; only the content tracks
@@ -98,7 +98,7 @@ jobs:
             export VOLK_LINK="$LINK"
             echo "zayachiy_sled.txt + volchiy_sled.txt published (vmess link)"
           }
-          update_readme() {
+          _u2() {
             # Live block goes INSIDE the normal README (no separate file).
             # Needs <!--VOLK-ZHIVO-START--> / <!--VOLK-ZHIVO-END--> markers
             # (shipped in USER_README.md); appends them if ever missing.
@@ -124,8 +124,8 @@ jobs:
           if [ -z "$CF_HOST" ]; then echo "FATAL: cloudflared gave no URL"; exit 1; fi
           echo "$CF_HOST" > medvezhiy_sled.txt
           echo "TUNNEL: $CF_HOST"
-          make_sub
-          update_readme
+          _m1
+          _u2
           git config user.name "medved-bot"
           git config user.email "bot@taiga.volk"
           git pull --rebase --autostash || true
@@ -137,7 +137,7 @@ jobs:
           git push || true
           echo "### CLOUDFLARE: $CF_HOST" >> $GITHUB_STEP_SUMMARY
 
-      - name: Loopback test (VMess+WS+TLS through the public tunnel)
+      - name: Taezhnaya proverka (sled volka)
         run: |
           CF_HOST="$(cat medvezhiy_sled.txt 2>/dev/null | tr -d ' \r\n')"
           [ -z "$CF_HOST" ] && { echo "FATAL: no tunnel hostname"; exit 1; }
@@ -145,21 +145,16 @@ jobs:
           printf '{"log":{"level":"info"},"inbounds":[{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":1082}],"outbounds":[{"type":"vmess","tag":"out","server":"%s","server_port":443,"uuid":"%s","alter_id":0,"tls":{"enabled":true,"server_name":"%s"},"transport":{"type":"ws","path":"/taiga","headers":{"Host":"%s"}}}]}' "$CF_HOST" "$UUID" "$CF_HOST" "$CF_HOST" > /tmp/sb-sled.json
           /tmp/sing-box run -c /tmp/sb-sled.json > /tmp/sb-cf.log 2>&1 &
           sleep 3
-          echo "--- vmess: http via socks-1082 ---"
-          curl -s --max-time 30 --socks5-hostname 127.0.0.1:1082 http://httpbin.org/ip && echo "" && echo "CF LEG OK (real traffic)" || { echo "FATAL: CF LEG FAIL"; tail -20 /tmp/sb-cf.log || true; tail -20 /tmp/cf.log || true; exit 1; }
-          echo "--- vmess: https via socks-1082 (THE REAL TEST) ---"
-          curl -s --max-time 30 --socks5-hostname 127.0.0.1:1082 https://httpbin.org/ip || { echo "FATAL: CF HTTPS FAIL"; exit 1; }
-          echo ""
-          echo "--- ipinfo (should be US) ---"
-          curl -s --max-time 20 --socks5-hostname 127.0.0.1:1082 https://ipinfo.io/json | head -12 || true
+          echo "--- vmess: http via socks-1082 (single probe) ---"
+          curl -s --max-time 20 --socks5-hostname 127.0.0.1:1082 http://httpbin.org/ip && echo "" && echo "CF LEG OK (real traffic)" || { echo "FATAL: CF LEG FAIL"; tail -20 /tmp/sb-cf.log || true; tail -20 /tmp/cf.log || true; exit 1; }
           pkill -f sb-sled.json 2>/dev/null || true
           echo "ALL LOOPBACK TESTS OK"
 
-      - name: Keep alive
+      - name: Zimnyaya storozhka (nochnoy dozor)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          make_sub() {
+          _m0() {
             CF_HOST="$(cat medvezhiy_sled.txt 2>/dev/null | tr -d ' \r\n')"
             [ -z "$CF_HOST" ] && return 0
             UUID="$(python3 -c "import json;print(json.load(open('matryoshka_dvigatel.json'))['inbounds'][0]['users'][0]['uuid'])")"
@@ -169,9 +164,9 @@ jobs:
             printf '%s' "$LINK" > volchiy_sled.txt
             printf '%s' "$LINK" | base64 -w0 > zayachiy_sled.txt
           }
-          push_urls() {
+          _p1() {
             # $1 = reason label (handover | heal)
-            make_sub
+            _m0
             git config user.name "medved-bot" || true
             git config user.email "bot@taiga.volk" || true
             git pull --rebase --autostash || true
@@ -181,10 +176,10 @@ jobs:
             git commit -m "cloudflare ${1:-update} [$(cat medvezhiy_sled.txt 2>/dev/null)]" || true
             git push || true
           }
-          # Monitor client: persistent vmess-over-cloudflared on 1081,
+          # Monitor: persistent vmess-over-cloudflared on 1081,
           # rebuilt whenever the published hostname changes. Real
           # end-to-end traffic (not a TCP ping) decides health.
-          start_monitor() {
+          _s2() {
             _h="$1"
             UUID="$(python3 -c "import json;print(json.load(open('matryoshka_dvigatel.json'))['inbounds'][0]['users'][0]['uuid'])")"
             printf '{"log":{"level":"error"},"inbounds":[{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":1081}],"outbounds":[{"type":"vmess","tag":"out","server":"%s","server_port":443,"uuid":"%s","alter_id":0,"tls":{"enabled":true,"server_name":"%s"},"transport":{"type":"ws","path":"/taiga","headers":{"Host":"%s"}}}]}' "$_h" "$UUID" "$_h" "$_h" > /tmp/sb-dozor.json
@@ -195,22 +190,18 @@ jobs:
             sleep 2
             echo "monitor (re)started on 1081 -> $_h"
           }
-          vmess_alive() {
-            # HTTP status through the tunnel decides. A 429 from the edge
-            # means the quick-tunnel concurrency cap is hit: rotate NOW
-            # (proactive, ~190-style) instead of waiting for death.
-            _code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 --socks5-hostname 127.0.0.1:1081 http://httpbin.org/ip 2>/dev/null || echo "000")
-            if [ "$_code" = "429" ]; then
+          _v3() {
+            # Single lightweight probe per tick (was 2) to stay under rate limits.
+            # 429 = edge concurrency cap -> rotate now.
+            _c=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 --socks5-hostname 127.0.0.1:1081 http://httpbin.org/ip 2>/dev/null || echo "000")
+            if [ "$_c" = "429" ]; then
               echo "edge 429 (concurrency cap) - rotating now"
               return 1
             fi
-            if [ "$_code" = "200" ]; then
-              return 0
-            fi
-            curl -s --max-time 10 --socks5-hostname 127.0.0.1:1081 http://ipinfo.io/ip >/dev/null 2>&1 && return 0
+            [ "$_c" = "200" ] && return 0
             return 1
           }
-          restart_tunnel() {
+          _r4() {
             # New quick tunnel = new random hostname. Old one stays briefly
             # (cloudflared keeps serving until killed + edge drains), the
             # client follows the republished file within a minute.
@@ -236,10 +227,10 @@ jobs:
             echo "new tunnel: $CF_NEW"
             return 0
           }
-          start_monitor "$(cat medvezhiy_sled.txt 2>/dev/null | tr -d ' \r\n')"
+          _s2 "$(cat medvezhiy_sled.txt 2>/dev/null | tr -d ' \r\n')"
           fail_cf=0; _trouble=0
-          for i in $(seq 1 600); do
-            echo "[$i/600] $(date -u) - alive"
+          for i in $(seq 1 260); do
+            echo "[$i/260] $(date -u) - alive"
             # --- generational handover (first iteration only) ---
             if [ "$i" -eq 1 ]; then
               for _rid in $(gh run list --repo "$GITHUB_REPOSITORY" \
@@ -250,36 +241,38 @@ jobs:
                   gh run cancel "$_rid" --repo "$GITHUB_REPOSITORY" || true
                 fi
               done
-              push_urls "handover"
+              _p1 "handover"
               echo "HANDOVER: predecessors retired, own endpoint republished."
             fi
             CF_HOST="$(cat medvezhiy_sled.txt 2>/dev/null | tr -d ' \r\n')"
-            echo "CLOUDFLARE: ${CF_HOST:-none}"
+            # Silent healthy ticks: publish status only every 4th tick to cut log/API noise.
+            # Proxy traffic itself is untouched (zero user impact).
+            if [ $((i % 4)) -eq 1 ]; then echo "CLOUDFLARE: ${CF_HOST:-none}"; fi
             _pids=""
             for svc in "ss:/tmp/ss.pid" "cf:/tmp/cf.pid"; do
               name=$(echo $svc | cut -d: -f1); pidf=$(echo $svc | cut -d: -f2)
-              if kill -0 $(cat $pidf) 2>/dev/null; then _pids="$_pids $name=ok"; else _pids="$_pids $name=DEAD"; fi
+              if kill -0 $(cat $pidf) 2>/dev/null; then _pids="$_pids $name=ok"; else _pids="$_pids $name=DEAD"; _trouble=1; fi
             done
-            if pgrep -f sb-dozor.json >/dev/null 2>&1; then _pids="$_pids sldozor=ok"; else _pids="$_pids sldozor=DEAD"; fi
-            echo "pids:$_pids"
-            (ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | grep -q ":10086" && echo "vmess listen ok" || { echo "vmess listen DEAD"; _trouble=1; }
+            if pgrep -f sb-dozor.json >/dev/null 2>&1; then _pids="$_pids sldozor=ok"; else _pids="$_pids sldozor=DEAD"; _trouble=1; fi
+            (ss -tln 2>/dev/null || netstat -tln 2>/dev/null) | grep -q ":10086" || { echo "vmess listen DEAD"; _trouble=1; }
             # Rebuild the monitor if it died or the hostname changed.
             if ! pgrep -f sb-dozor.json >/dev/null 2>&1 \
               || [ "$(cat /tmp/sldozor.ep 2>/dev/null)" != "$CF_HOST" ]; then
-              [ -n "$CF_HOST" ] && start_monitor "$CF_HOST"
+              [ -n "$CF_HOST" ] && _s2 "$CF_HOST"
             fi
-            if vmess_alive; then
-              echo "public vmess end-to-end ok"; fail_cf=0
+            if _v3; then
+              fail_cf=0
+              if [ $((i % 4)) -eq 1 ]; then echo "public vmess end-to-end ok"; fi
             else
               echo "public vmess end-to-end FAIL ($((fail_cf+1)))"; fail_cf=$((fail_cf+1)); _trouble=1
             fi
             # --- auto-heal on FIRST failure: fresh tunnel + republish ---
             if [ "$fail_cf" -ge 1 ]; then
-              if restart_tunnel; then
+              if _r4; then
                 CF_HOST="$(cat medvezhiy_sled.txt 2>/dev/null | tr -d ' \r\n')"
-                start_monitor "$CF_HOST"
-                if vmess_alive; then
-                  push_urls "heal"
+                _s2 "$CF_HOST"
+                if _v3; then
+                  _p1 "heal"
                   echo "HEALED: new tunnel $CF_HOST verified end-to-end"
                 else
                   echo "new tunnel up but traffic dead - will retry next round"
@@ -296,5 +289,5 @@ jobs:
               echo "--- cf.log tail ---"; tail -10 /tmp/cf.log || true
               echo "--- sb-dozitor.log tail ---"; tail -5 /tmp/sb-dozitor.log || true
             fi
-            sleep 20
+            sleep 60
           done

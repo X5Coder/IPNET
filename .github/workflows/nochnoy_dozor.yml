@@ -1,14 +1,12 @@
 name: Nochnoy Dozor (storozh taygi)
 
-# Safety net for the 5h-cycle gap: if the USA Proxy run dies early
-# (timeout/error/runner loss), cron alone would leave the proxy dead
-# until the next 5h tick. This checks every 20 min and starts a fresh
-# run when none is active. The concurrency group guarantees only one
-# proxy run ever lives (a duplicate dispatch just cancels cleanly).
+# Safety net: if the proxy run dies early, cron alone would leave the
+# proxy dead until the next 6h tick. Checks hourly and starts a
+# fresh run when none is active. Concurrency group = only one lives.
 
 on:
   schedule:
-    - cron: '*/20 * * * *'
+    - cron: '23 */1 * * *'
   workflow_dispatch:
 
 permissions:
