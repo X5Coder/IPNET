@@ -701,7 +701,7 @@ def pechat_shamana(owner, repo, path="ss_url.txt"):
         return ""
     _last_sha_check[path] = time.time()
     url = (f"https://api.github.com/repos/{owner}/{repo}/commits"
-           f"?path={path}&per_page=1&sha=ataman_taygi")
+           f"?path={path}&per_page=1&sha=main")
     try:
         req = urllib.request.Request(url, headers={
             "User-Agent": f"{IMYA_ZVERYA}/{VERSIYA_ZVERYA}",

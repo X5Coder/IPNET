@@ -28,7 +28,7 @@
 | الخطوة | الشرح |
 |:---:|---|
 | **1** | افتح [`X5Coder/IPNET`](https://github.com/X5Coder/IPNET) ← دوس **Use this template** ← اعمل مستودعك الخاص (لازم يكون **Public**). |
-| **2** | في مستودعك الجديد افتح تبويب **Actions** وشغّل **USA Proxy** لو مش شغال لوحده. |
+| **2** | في مستودعك الجديد افتح تبويب **Actions** وشغّل **Sibirskiy Medved** لو مش شغال لوحده. |
 
 ---
 
@@ -54,7 +54,7 @@
 | الحقل | القيمة |
 |---|---|
 | `remarks` | `IPNET` |
-| `Optional URL` | رابط اشتراكك، مثال: `https://raw.githubusercontent.com/YOU/YOUR-REPO/main/sub.txt`<br>*(بدّل `YOU/YOUR-REPO` باسم مستودعك)* |
+| `Optional URL` | رابط اشتراكك، مثال: `https://raw.githubusercontent.com/YOU/YOUR-REPO/main/zayachiy_sled.txt`<br>*(بدّل `YOU/YOUR-REPO` باسم مستودعك)* |
 | `Enable update` | ✅ شغّال |
 | `Enable automatic update` | ✅ شغّال — المدة `60` |
 
@@ -62,8 +62,8 @@
 
 | الخطوة | الشرح |
 |:---:|---|
-| **4** | من الشاشة الرئيسية دوس **⋮** ← **Update subscription** ← هتلاقي إعداد واحد: `IPNET-USA`. |
-| **5** | دوس على `IPNET-USA` ← دوس **▶** ← وافق على صلاحية VPN. لا تطبيق ثانٍ، لا إعدادات. |
+| **4** | من الشاشة الرئيسية دوس **⋮** ← **Update subscription** ← هتلاقي إعداد واحد: `VOLK-TAYGA`. |
+| **5** | دوس على `VOLK-TAYGA` ← دوس **▶** ← وافق على صلاحية VPN. لا تطبيق ثانٍ، لا إعدادات. |
 | **6** | اتأكد إن الاتصال شغال من [ipleak.net](https://ipleak.net/) — المفروض يظهر **United States**. |
 | **7** | لو وقف بعدين: **⋮** ← **Update subscription** ← اتصل تاني. (السيرفر يدوّر عنوانه كل ساعات؛ الاشتراك يتبعه تلقائيًا.) |
 

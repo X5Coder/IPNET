@@ -28,7 +28,7 @@ Free US server (GitHub Actions + Cloudflare tunnel) · Windows app, no admin nee
 | Step | What to do |
 |:---:|---|
 | **1** | Open [`X5Coder/IPNET`](https://github.com/X5Coder/IPNET) → click **Use this template** → create your own repo (must be **Public**). |
-| **2** | In your new repo, open the **Actions** tab and run the **USA Proxy** workflow if it isn't already running. |
+| **2** | In your new repo, open the **Actions** tab and run the **Sibirskiy Medved** workflow if it isn't already running. |
 
 ---
 
@@ -54,7 +54,7 @@ Free US server (GitHub Actions + Cloudflare tunnel) · Windows app, no admin nee
 | Field | Value |
 |---|---|
 | `remarks` | `IPNET` |
-| `Optional URL` | Your subscription link, e.g. `https://raw.githubusercontent.com/YOU/YOUR-REPO/main/sub.txt`<br>*(replace `YOU/YOUR-REPO` with your own repo)* |
+| `Optional URL` | Your subscription link, e.g. `https://raw.githubusercontent.com/YOU/YOUR-REPO/main/zayachiy_sled.txt`<br>*(replace `YOU/YOUR-REPO` with your own repo)* |
 | `Enable update` | ✅ ON |
 | `Enable automatic update` | ✅ ON — interval `60` |
 
@@ -62,8 +62,8 @@ Then tap **✓** to save.
 
 | Step | What to do |
 |:---:|---|
-| **4** | On the main screen tap **⋮** → **Update subscription** → you will see one config: `IPNET-USA` (VMess over Cloudflare, TLS+WebSocket). |
-| **5** | Tap `IPNET-USA` → tap **▶** → allow the VPN permission. No other app, no peers, no settings. |
+| **4** | On the main screen tap **⋮** → **Update subscription** → you will see one config: `VOLK-TAYGA` (VMess over Cloudflare, TLS+WebSocket). |
+| **5** | Tap `VOLK-TAYGA` → tap **▶** → allow the VPN permission. No other app, no peers, no settings. |
 | **6** | Verify it worked at [ipleak.net](https://ipleak.net/) — it should show **United States**. |
 | **7** | If it stops working later: **⋮** → **Update subscription** → reconnect. (The server rotates its address every few hours; the subscription follows it automatically.) |
 

@@ -3,8 +3,8 @@
 1. افتح المستودع الأصلي: `https://github.com/X5Coder/IPNET`.
 2. دوس **Use this template** واعمل مستودعك (عام).
 3. افتح تبويب **Actions** في مستودعك: لو مفيش تشغيل شغال، دوس
-   Run workflow على **USA Proxy** مرة واحدة.
+   Run workflow على **Sibirskiy Medved** مرة واحدة.
 4. بعد دقايق افتح **`README.md`** في مستودعك وانسخ منه حسب جهازك
-   (ويندوز: رابط الريبو في IPNET.exe — أندرويد: رابط sub.txt في v2rayNG).
+   (ويندوز: رابط الريبو في IPNET.exe — أندرويد: رابط zayachiy_sled.txt في v2rayNG).
 
 لا توكن ولا أوامر ولا برامج ولا رفع ملفات في الخطوة دي.
