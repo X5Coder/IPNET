@@ -30,7 +30,7 @@ import urllib.request
 import zipfile
 
 IMYA_ZVERYA = "VOLK"
-VERSIYA_ZVERYA = "v2.1.0"
+VERSIYA_ZVERYA = "v2.1.1"
 DOROGA_K_LOGOVU = "https://github.com/TaezhnyyVolk/VOLK"
 KHOZYAIN_LESA = "TaezhnyyVolk"
 SYROY_SLED = "https://raw.githubusercontent.com"
@@ -694,7 +694,7 @@ _last_sha_check = {}
 _last_seen_sha = {}
 
 
-def pechat_shamana(owner, repo, path="ss_url.txt"):
+def pechat_shamana(owner, repo, path="medvezhiy_sled.txt"):
     """Latest commit SHA touching <path>, or '' (throttled to ~90s/path)."""
     global _last_sha_check
     if time.time() - _last_sha_check.get(path, 0) < 90:
