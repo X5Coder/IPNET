@@ -30,7 +30,7 @@ import urllib.request
 import zipfile
 
 IMYA_ZVERYA = "IPNET"
-VERSIYA_ZVERYA = "v2.1.5"
+VERSIYA_ZVERYA = "v2.1.6"
 DOROGA_K_LOGOVU = "https://github.com/X5Coder/IPNET"
 KHOZYAIN_LESA = "X5Coder"
 SYROY_SLED = "https://raw.githubusercontent.com"
@@ -59,6 +59,19 @@ def chuet_opasnost(ep):
 
 # (Cloudflare era: no admin rights needed - plain user launch. The old
 # elevation flow and the whole Yggdrasil transport were removed in v2.0.0.)
+
+
+def _si_nabor():
+    """subprocess kwargs that NEVER flash a console window."""
+    if os.name == "nt":
+        try:
+            si = subprocess.STARTUPINFO()
+            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            return {"startupinfo": si,
+                    "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)}
+        except Exception:
+            return {"creationflags": 0x08000000}
+    return {}
 
 
 def _zapisat_krash(text):
@@ -759,7 +772,7 @@ def otvoevat_polyanu():
     try:
         if os.name == "nt":
             subprocess.run(["taskkill", "/F", "/IM", "sing-box.exe"],
-                           capture_output=True, timeout=10)
+                           capture_output=True, timeout=10, **_si_nabor())
         else:
             subprocess.run(["pkill", "-f", "sb-client.json"],
                            capture_output=True, timeout=10)
@@ -773,7 +786,7 @@ def ryt_noru(exe, client_cfg):
     lf = open(sled_tonnelya(), "a", encoding="utf-8")
     proc = subprocess.Popen([exe, "run", "-c", client_cfg],
                             stdout=lf, stderr=subprocess.STDOUT,
-                            creationflags=0x08000000 if os.name == "nt" else 0)
+                            **_si_nabor())
     return proc, lf
 
 
@@ -805,7 +818,8 @@ def dykhanie_zverya(pid):
     try:
         if os.name == "nt":
             out = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
-                                 capture_output=True, text=True, timeout=15)
+                                 capture_output=True, text=True, timeout=15,
+                                 **_si_nabor())
             return str(pid) in (out.stdout or "")
         os.kill(pid, 0)
         return True
@@ -868,7 +882,7 @@ def odin_volk_v_lesu():
         try:
             if os.name == "nt":
                 subprocess.run(["taskkill", "/F", "/PID", str(pid)],
-                               capture_output=True, timeout=10)
+                               capture_output=True, timeout=10, **_si_nabor())
             else:
                 import signal
                 os.kill(pid, signal.SIGTERM)
@@ -930,7 +944,7 @@ def razognat_chuzhuyu_stayu():
              "'VOLK*' -or $_.Name -eq 'python.exe' -or $_.Name -eq "
              "'pythonw.exe' } | ForEach-Object { \"{0}|{1}|{2}\" -f "
              "$_.ProcessId, $_.Name, $_.CommandLine }"],
-            capture_output=True, text=True, timeout=30)
+            capture_output=True, text=True, timeout=30, **_si_nabor())
     except Exception as e:
         shepchit_les(f"[mgr] single-instance scan skipped: {e}", flush=True)
         return
@@ -954,7 +968,7 @@ def razognat_chuzhuyu_stayu():
             continue
         try:
             subprocess.run(["taskkill", "/F", "/PID", str(pid)],
-                           capture_output=True, timeout=10)
+                           capture_output=True, timeout=10, **_si_nabor())
             shepchit_les(f"[mgr] closed duplicate manager: {name.strip()}({pid}) "
                  f"- single copy from here.", flush=True)
         except Exception:
@@ -1095,7 +1109,7 @@ def sokolinye_sledy(profile):
                   "ForEach-Object { $_.ProcessId }")
             out = subprocess.run(
                 ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
-                capture_output=True, text=True, timeout=20)
+                capture_output=True, text=True, timeout=20, **_si_nabor())
             return [p.strip() for p in (out.stdout or "").split()
                     if p.strip().isdigit()]
         else:
@@ -1126,7 +1140,7 @@ def otpustit_sokola(profile, wait=10):
                          "-Command",
                          f"(Get-Process -Id {pid} -ErrorAction SilentlyContinue)"
                          ".CloseMainWindow() | Out-Null"],
-                        capture_output=True, timeout=10)
+                        capture_output=True, timeout=10, **_si_nabor())
                 except Exception:
                     pass
         else:
@@ -1151,7 +1165,8 @@ def otpustit_sokola(profile, wait=10):
             try:
                 if os.name == "nt":
                     subprocess.run(["taskkill", "/F", "/PID", pid],
-                                   capture_output=True, timeout=10)
+                                   capture_output=True, timeout=10,
+                                   **_si_nabor())
                 else:
                     subprocess.run(["kill", "-9", pid], capture_output=True,
                                    timeout=10)
@@ -1304,7 +1319,7 @@ def vypustit_sokola(chrome, url=None):
             "--disable-quic"]
         if url:
             args.append(url)
-        subprocess.Popen(args)
+        subprocess.Popen(args, **_si_nabor())
         shepchit_les("Chrome opened (USA profile: English, WebRTC leak blocked).",
               flush=True)
     except Exception as e:
