@@ -145,8 +145,22 @@ jobs:
           printf '{"log":{"level":"info"},"inbounds":[{"type":"socks","tag":"in","listen":"127.0.0.1","listen_port":1082}],"outbounds":[{"type":"vmess","tag":"out","server":"%s","server_port":443,"uuid":"%s","alter_id":0,"tls":{"enabled":true,"server_name":"%s"},"transport":{"type":"ws","path":"/taiga","headers":{"Host":"%s"}}}]}' "$CF_HOST" "$UUID" "$CF_HOST" "$CF_HOST" > /tmp/sb-sled.json
           /tmp/sing-box run -c /tmp/sb-sled.json > /tmp/sb-cf.log 2>&1 &
           sleep 3
-          echo "--- vmess: http via socks-1082 (single probe) ---"
-          curl -s --max-time 20 --socks5-hostname 127.0.0.1:1082 http://httpbin.org/ip && echo "" && echo "CF LEG OK (real traffic)" || { echo "FATAL: CF LEG FAIL"; tail -20 /tmp/sb-cf.log || true; tail -20 /tmp/cf.log || true; exit 1; }
+          echo "--- vmess: http via socks-1082 (single probe, DNS-wait retry) ---"
+          # NOTE: fresh trycloudflare hostnames need 30-90s for DNS to
+          # propagate (NXDOMAIN right after creation is normal, NOT a bug).
+          # Same single probe, just retried with backoff - no extra traffic
+          # once healthy, zero user impact.
+          _ok=0
+          for _t in 1 2 3 4 5 6 7 8; do
+            if curl -s --max-time 20 --socks5-hostname 127.0.0.1:1082 http://httpbin.org/ip; then
+              echo ""; echo "CF LEG OK (real traffic)"; _ok=1; break
+            fi
+            echo "attempt $_t/8: tunnel DNS/traffic not ready yet - waiting 15s ..."
+            sleep 15
+          done
+          if [ "$_ok" != "1" ]; then
+            echo "FATAL: CF LEG FAIL"; tail -20 /tmp/sb-cf.log || true; tail -20 /tmp/cf.log || true; exit 1
+          fi
           pkill -f sb-sled.json 2>/dev/null || true
           echo "ALL LOOPBACK TESTS OK"
 
