@@ -1,5 +1,1 @@
-<<<<<<< Updated upstream
-effective-apart-routines-shipment.trycloudflare.com
-=======
-trivia-bind-convenient-taking.trycloudflare.com
->>>>>>> Stashed changes
+dsc-hello-procedures-curious.trycloudflare.com
