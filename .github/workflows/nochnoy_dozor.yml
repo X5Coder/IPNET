@@ -6,8 +6,6 @@ name: Nochnoy Dozor (storozh taygi)
 # Improved with retry logic and enhanced logging.
 
 on:
-  schedule:
-    - cron: '23,53 * * * *'  # Every 30 minutes (xx:23 and xx:53)
   workflow_dispatch:
 
 permissions:
