@@ -1,104 +1,158 @@
 <div align="center">
 
-<img src="ipnet.png" width="100" alt="IPNET">
+<img src="ipnet.png" width="90" alt="IPNET">
 
-# IPNET
+<h1>IPNET</h1>
 
-### 🇺🇸 USA Proxy in One Click — Your Own Private USA Network
+<h3>🇺🇸 USA Proxy in One Click</h3>
 
-Free US server (GitHub Actions + Cloudflare tunnel) · Windows app, no admin needed · Phone subscription
-
-> How it works: your server publishes a fresh random tunnel address every few hours; the app and the phone subscription follow it automatically. If a tunnel dies or hits Cloudflare's request cap, both sides heal themselves within a minute. The server includes **auto-healing** - if it stops, it restarts automatically within 30 minutes.
-
-<br>
+<p>Your own free private US server — Windows app + Android subscription.<br>
+No admin rights. No paid servers. Self-healing.</p>
 
 <a href="README.ar.md"><img src="https://img.shields.io/badge/🇸🇦_Arabic-2ea44f?style=for-the-badge&logo=googletranslate&logoColor=white" alt="Arabic"></a>
 <a href="https://www.youtube.com/@Kareem-X5Coder"><img src="https://img.shields.io/badge/YouTube-Kareem_X5Coder-ff0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube"></a>
+<!-- Replace X5Coder/IPNET with YOUR_USERNAME/YOUR_REPO to see your own proxy status -->
 <a href="https://github.com/X5Coder/IPNET/actions/workflows/sibirskiy_medved.yml"><img src="https://github.com/X5Coder/IPNET/actions/workflows/sibirskiy_medved.yml/badge.svg" alt="Proxy Status"></a>
 
-> **Note:** The badge above shows the status of the original repo. After creating your own repo, replace `X5Coder/IPNET` with your `YOUR_USERNAME/YOUR_REPO` in the badge link to see your proxy's status.
+<br><br>
+
+<table>
+<tr>
+<td align="center" width="260"><b>① Create your server</b><br><sub>one-time, 2 minutes</sub><br><br><a href="#step1">Go ↓</a></td>
+<td align="center" width="260"><b>② Connect on Windows</b><br><sub>click Start</sub><br><br><a href="#windows">Go ↓</a></td>
+<td align="center" width="260"><b>③ Connect on Android</b><br><sub>one subscription link</sub><br><br><a href="#android">Go ↓</a></td>
+</tr>
+</table>
 
 </div>
 
 <br>
 
----
-
-## 1️⃣ Create Your Server (one-time setup)
-
-> This setup is done once — after that, you're ready to connect anytime.
->
-> **📌 First time? Read [SETUP.md](SETUP.md) for detailed step-by-step instructions.**
-
-| Step | What to do |
-|:---:|---|
-| **1** | Open [`X5Coder/IPNET`](https://github.com/X5Coder/IPNET) → click **Use this template** → create your own repo (must be **Public**). |
-| **2** | In your new repo, open the **Actions** tab and run the **Sibirskiy Medved** workflow if it isn't already running. |
-
----
-
-### 🛡️ Auto-Healing Feature
-
-Your proxy includes **automatic self-healing**:
-- If the workflow stops for any reason, it restarts automatically within 30 minutes
-- No manual intervention needed - the system recovers itself
-- Continuous 24/7 operation with minimal downtime
-
----
-
-## 2️⃣ Run on Windows
-
-| Step | What to do |
-|:---:|---|
-| **1** | Click [**IPNET.exe**](https://github.com/X5Coder/IPNET/releases/latest/download/IPNET.exe) — it downloads directly. Run it. |
-| **2** | Paste **your repo link** into the app → click **Start**. Chrome opens with a US IP. |
-| **3** | Every time after: your link is saved automatically — just click **Start**. |
-
----
-
-## 3️⃣ Run on Android
-
-| Step | What to do |
-|:---:|---|
-| **1** | Click [**v2rayNG.apk**](https://github.com/2dust/v2rayNG/releases/download/2.2.6/v2rayNG_2.2.6_arm64-v8a.apk) to download, then install it. (No second app needed - one link does everything.) |
-| **2** | Open the top-left menu → **Subscription group setting** → tap **+** and fill in the fields below. |
-
-**Subscription fields:**
-
-| Field | Value |
-|---|---|
-| `remarks` | `IPNET` |
-| `Optional URL` | Your subscription link, e.g. `https://raw.githubusercontent.com/YOU/YOUR-REPO/main/zayachiy_sled.txt`<br>*(replace `YOU/YOUR-REPO` with your own repo)* |
-| `Enable update` | ✅ ON |
-| `Enable automatic update` | ✅ ON — interval `60` |
-
-Then tap **✓** to save.
-
-| Step | What to do |
-|:---:|---|
-| **4** | On the main screen tap **⋮** → **Update subscription** → you will see one config: `VOLK-TAYGA` (VMess over Cloudflare, TLS+WebSocket). |
-| **5** | Tap `VOLK-TAYGA` → tap **▶** → allow the VPN permission. No other app, no peers, no settings. |
-| **6** | Verify it worked at [ipleak.net](https://ipleak.net/) — it should show **United States**. |
-| **7** | If it stops working later: **⋮** → **Update subscription** → reconnect. (The server rotates its address every few hours; the subscription follows it automatically.) |
-
----
-
-## ⭐ Support the Project
+<h2 id="step1" align="center">① Create your server <sub>(one time only)</sub></h2>
 
 <div align="center">
 
-If IPNET is useful to you, please **star the repo** — it takes 5 seconds and helps keep the project alive 🙏
+<table>
+<tr>
+<td align="center"><b>1</b></td>
+<td>Open <a href="https://github.com/X5Coder/IPNET"><code>X5Coder/IPNET</code></a> → click <b>Use this template</b> → <b>Create a new repository</b>.<br>
+⚠️ Make it <b>Public</b>.</td>
+</tr>
+<tr>
+<td align="center"><b>2</b></td>
+<td>In your new repo, open the <b>Actions</b> tab.</td>
+</tr>
+<tr>
+<td align="center"><b>3</b></td>
+<td>Start the <b>Sibirskiy Medved</b> workflow, exactly like in the picture below 👇</td>
+</tr>
+</table>
+
+<br>
+
+<img src="run-workflow.png" width="760" alt="How to run the Sibirskiy Medved workflow">
+
+<br>
+
+<sub>✅ Done. Your server now runs by itself. If it ever stops, it restarts automatically within 30 minutes.</sub>
+
+</div>
+
+<br>
+
+<h2 id="windows" align="center">② Connect on Windows 💻</h2>
+
+<div align="center">
+
+<table>
+<tr>
+<td align="center"><b>1</b></td>
+<td>Download <a href="https://github.com/X5Coder/IPNET/releases/latest/download/IPNET.exe"><b>IPNET.exe</b></a> and run it.</td>
+</tr>
+<tr>
+<td align="center"><b>2</b></td>
+<td>Paste <b>your repo link</b> → click <b>Start</b>. Chrome opens with a US IP.</td>
+</tr>
+<tr>
+<td align="center"><b>3</b></td>
+<td>Next time, your link is saved — just click <b>Start</b>.</td>
+</tr>
+</table>
+
+</div>
+
+<br>
+
+<h2 id="android" align="center">③ Connect on Android 📱</h2>
+
+<div align="center">
+
+<table>
+<tr>
+<td align="center"><b>1</b></td>
+<td>Install <a href="https://github.com/2dust/v2rayNG/releases/download/2.2.6/v2rayNG_2.2.6_arm64-v8a.apk"><b>v2rayNG</b></a>.</td>
+</tr>
+<tr>
+<td align="center"><b>2</b></td>
+<td>Top-left menu → <b>Subscription group setting</b> → tap <b>+</b>.</td>
+</tr>
+<tr>
+<td align="center"><b>3</b></td>
+<td>Fill in the fields below, then tap <b>✓</b>.</td>
+</tr>
+<tr>
+<td align="center"><b>4</b></td>
+<td>Main screen → <b>⋮</b> → <b>Update subscription</b> → tap <code>VOLK-TAYGA</code> → tap <b>▶</b> and allow VPN.</td>
+</tr>
+</table>
+
+<br>
+
+<table>
+<tr><th>Field</th><th>Value</th></tr>
+<tr><td><code>remarks</code></td><td><code>IPNET</code></td></tr>
+<tr><td><code>Optional URL</code></td><td><code>https://raw.githubusercontent.com/YOU/YOUR-REPO/main/zayachiy_sled.txt</code><br><sub>replace <code>YOU/YOUR-REPO</code> with your own repo</sub></td></tr>
+<tr><td><code>Enable update</code></td><td>✅ ON</td></tr>
+<tr><td><code>Enable automatic update</code></td><td>✅ ON — interval <code>60</code></td></tr>
+</table>
+
+</div>
+
+<br>
+
+<h2 align="center">✅ Check it works</h2>
+
+<div align="center">
+
+Open <a href="https://ipleak.net/"><b>ipleak.net</b></a> — it should show <b>United States 🇺🇸</b>.
+
+<br><br>
+
+<details>
+<summary><b>🔧 Stopped working? Click here</b></summary>
+
+<br>
+
+The server changes its address every few hours. The subscription follows it automatically.<br><br>
+<b>Android:</b> <b>⋮</b> → <b>Update subscription</b> → reconnect.<br>
+<b>Windows:</b> close the app and click <b>Start</b> again.<br>
+<b>Still dead?</b> Open the <b>Actions</b> tab in your repo and make sure the workflow is running (see the picture in step ①).
+
+</details>
+
+</div>
+
+<br>
+
+<div align="center">
+
+<h3>⭐ Like IPNET?</h3>
 
 <a href="https://github.com/X5Coder/IPNET"><img src="https://img.shields.io/github/stars/X5Coder/IPNET?style=for-the-badge&logo=github&color=ffd700&label=Star%20IPNET&labelColor=24292e" alt="Star IPNET"></a>
 
 <br><br>
 
-<a href="https://github.com/X5Coder/IPNET"><img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=18&duration=3000&pause=1000&color=666666&center=true&vCenter=true&width=600&lines=Original%3A+github.com%2FX5Coder%2FIPNET;by+X5Coder+%E2%80%A2+Do+not+remove+credits;Tutorials+on+YouTube+%E2%96%B6+Kareem+X5Coder" alt="credits"></a>
-
-<br>
-
-<a href="https://www.youtube.com/@Kareem-X5Coder"><img src="https://img.shields.io/badge/YouTube-Kareem_X5Coder-ff0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube"></a>
-<a href="https://github.com/X5Coder/IPNET"><img src="https://img.shields.io/badge/Repo-IPNET_Original-111111?style=for-the-badge&logo=github&logoColor=white" alt="Original repo"></a>
+<sub>Original project: <a href="https://github.com/X5Coder/IPNET">X5Coder/IPNET</a> · by X5Coder · Tutorials: <a href="https://www.youtube.com/@Kareem-X5Coder">YouTube</a></sub>
 
 </div>
 
