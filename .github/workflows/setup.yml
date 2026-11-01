@@ -1,0 +1,79 @@
+name: Setup (Auto-start after Actions enabled)
+
+# This workflow runs once after you enable GitHub Actions.
+# It automatically starts the main proxy workflow (Sibirskiy Medved).
+# Runs on first push after Actions are enabled.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'severnyy_medved.py'
+      - 'matryoshka_dvigatel.json'
+      - '.github/workflows/setup.yml'
+      - 'README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  setup:
+    if: github.repository != 'X5Coder/VOLK'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check if proxy is already running
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "=== IPNET Setup ==="
+          echo "Checking if Sibirskiy Medved is already running..."
+          N=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow sibirskiy_medved.yml \
+            --status in_progress --limit 1 --json databaseId -q 'length')
+          if [ "${N:-0}" -ge 1 ]; then
+            echo "✓ Proxy is already running (${N} active run(s))"
+            echo "Setup complete - no action needed"
+            exit 0
+          fi
+          echo "Proxy not running - will start it now"
+
+      - name: Start Sibirskiy Medved workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Starting Sibirskiy Medved (main proxy workflow)..."
+          if gh workflow run sibirskiy_medved.yml --repo "$GITHUB_REPOSITORY" --ref main; then
+            echo "✓ Sibirskiy Medbed started successfully"
+            echo ""
+            echo "🎉 Setup complete!"
+            echo "Your proxy will be ready in ~5-10 minutes"
+            echo "Check the Actions tab to see progress"
+          else
+            echo "✗ Failed to start Sibirskiy Medved"
+            echo "Please check:"
+            echo "  1. Is the repository public?"
+            echo "  2. Are GitHub Actions enabled?"
+            echo "  3. Try running it manually from the Actions tab"
+            exit 1
+          fi
+
+      - name: Add setup summary
+        run: |
+          echo "## 🎉 IPNET Setup Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The main proxy workflow (Sibirskiy Medved) has been started automatically." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Wait 5-10 minutes for the proxy to build" >> $GITHUB_STEP_SUMMARY
+          echo "2. Check the **Actions** tab to see progress" >> $GITHUB_STEP_SUMMARY
+          echo "3. Once complete, open your README.md to get your connection links" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📱 For Windows:" >> $GITHUB_STEP_SUMMARY
+          echo "- Download IPNET.exe from Releases" >> $GITHUB_STEP_SUMMARY
+          echo "- Paste your repo link and click Start" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📱 For Android:" >> $GITHUB_STEP_SUMMARY
+          echo "- Install v2rayNG" >> $GITHUB_STEP_SUMMARY
+          echo "- Add subscription from your zayachiy_sled.txt file" >> $GITHUB_STEP_SUMMARY

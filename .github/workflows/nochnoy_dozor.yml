@@ -1,12 +1,13 @@
 name: Nochnoy Dozor (storozh taygi)
 
 # Safety net: if the proxy run dies early, cron alone would leave the
-# proxy dead until the next 6h tick. Checks hourly and starts a
+# proxy dead until the next 6h tick. Checks every 30 min and starts a
 # fresh run when none is active. Concurrency group = only one lives.
+# Improved with retry logic and enhanced logging.
 
 on:
   schedule:
-    - cron: '23 */1 * * *'
+    - cron: '23,53 * * * *'  # Every 30 minutes (xx:23 and xx:53)
   workflow_dispatch:
 
 permissions:
@@ -17,19 +18,35 @@ jobs:
   watch:
     if: github.repository != 'X5Coder/VOLK'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Restart proxy if no run is active
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "=== Nochnoy Dozor Watch Start ==="
+          echo "Checking for active sibirskiy_medved runs..."
           N=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow sibirskiy_medved.yml \
             --status in_progress --limit 1 --json databaseId -q 'length')
           if [ "${N:-0}" -ge 1 ]; then
-            echo "proxy run ACTIVE - nothing to do."
+            echo "✓ Proxy run ACTIVE (${N} run(s) in progress) - nothing to do."
             exit 0
           fi
-          echo "no active proxy run - dispatching a fresh USA Proxy run ..."
-          gh workflow run sibirskiy_medved.yml --repo "$GITHUB_REPOSITORY" --ref main \
-            && echo "dispatched OK" \
-            || echo "dispatch failed (workflow missing/disabled?) - will retry next tick"
+          echo "✗ No active proxy run found - attempting to dispatch fresh run..."
+          # Retry logic: try up to 3 times with 1-minute backoff
+          for attempt in 1 2 3; do
+            echo "Dispatch attempt ${attempt}/3..."
+            if gh workflow run sibirskiy_medved.yml --repo "$GITHUB_REPOSITORY" --ref main; then
+              echo "✓ Dispatch SUCCESS - new run started"
+              exit 0
+            else
+              echo "✗ Dispatch attempt ${attempt} failed"
+              if [ $attempt -lt 3 ]; then
+                echo "Waiting 60 seconds before retry..."
+                sleep 60
+              fi
+            fi
+          done
+          echo "✗ All dispatch attempts failed - will retry next scheduled tick (30 min)"
+          echo "Possible causes: workflow disabled, repo not public, or GitHub API rate limit"
+          exit 1

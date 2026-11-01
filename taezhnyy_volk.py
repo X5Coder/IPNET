@@ -62,15 +62,8 @@ def chuet_opasnost(ep):
 
 
 def _si_nabor():
-    """subprocess kwargs that NEVER flash a console window."""
-    if os.name == "nt":
-        try:
-            si = subprocess.STARTUPINFO()
-            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            return {"startupinfo": si,
-                    "creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)}
-        except Exception:
-            return {"creationflags": 0x08000000}
+    """subprocess kwargs - SHOW console window for visibility."""
+    # Removed CREATE_NO_WINDOW to ensure terminal stays open and shows all output
     return {}
 
 
@@ -86,12 +79,17 @@ def _zapisat_krash(text):
 
 
 def shepchit_les(*args, **kwargs):
-    """print() that never kills the app: with no live console (odd launch,
-    broken pipe) stdout writes raise OSError - swallow it and keep running."""
+    """print() that always shows output in terminal.
+    If stdout fails, try to redirect to stderr or show error."""
     try:
-        print(*args, **kwargs)
+        print(*args, **kwargs, flush=True)
     except OSError:
-        pass
+        try:
+            import sys
+            sys.stderr.write(" ".join(str(a) for a in args) + "\n")
+            sys.stderr.flush()
+        except Exception:
+            pass
 
 
 def taezhnoe_logovo():
