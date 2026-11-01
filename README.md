@@ -9,10 +9,8 @@
 <p>Your own free private US server — Windows app + Android subscription.<br>
 No admin rights. No paid servers. Self-healing.</p>
 
-<a href="README.ar.md"><img src="https://img.shields.io/badge/🇸🇦_Arabic-2ea44f?style=for-the-badge&logo=googletranslate&logoColor=white" alt="Arabic"></a>
+<a href="https://youtu.be/PMoJyTe8h4w"><img src="https://img.shields.io/badge/▶_Watch_the_Tutorial-ff0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Video Tutorial"></a>
 <a href="https://www.youtube.com/@Kareem-X5Coder"><img src="https://img.shields.io/badge/YouTube-Kareem_X5Coder-ff0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube"></a>
-<!-- Replace X5Coder/IPNET with YOUR_USERNAME/YOUR_REPO to see your own proxy status -->
-<a href="https://github.com/X5Coder/IPNET/actions/workflows/sibirskiy_medved.yml"><img src="https://github.com/X5Coder/IPNET/actions/workflows/sibirskiy_medved.yml/badge.svg" alt="Proxy Status"></a>
 
 <br><br>
 
@@ -50,7 +48,7 @@ No admin rights. No paid servers. Self-healing.</p>
 
 <br>
 
-<img src="run-workflow.png" width="760" alt="How to run the Sibirskiy Medved workflow">
+<img src="run-workflow.png" width="760" alt="How to run the Setup workflow">
 
 <br>
 
@@ -100,10 +98,6 @@ No admin rights. No paid servers. Self-healing.</p>
 <td align="center"><b>3</b></td>
 <td>Fill in the fields below, then tap <b>✓</b>.</td>
 </tr>
-<tr>
-<td align="center"><b>4</b></td>
-<td>Main screen → <b>⋮</b> → <b>Update subscription</b> → tap <code>VOLK-TAYGA</code> → tap <b>▶</b> and allow VPN.</td>
-</tr>
 </table>
 
 <br>
@@ -114,6 +108,15 @@ No admin rights. No paid servers. Self-healing.</p>
 <tr><td><code>Optional URL</code></td><td><code>https://raw.githubusercontent.com/YOU/YOUR-REPO/main/zayachiy_sled.txt</code><br><sub>replace <code>YOU/YOUR-REPO</code> with your own repo</sub></td></tr>
 <tr><td><code>Enable update</code></td><td>✅ ON</td></tr>
 <tr><td><code>Enable automatic update</code></td><td>✅ ON — interval <code>60</code></td></tr>
+</table>
+
+<br>
+
+<table>
+<tr>
+<td align="center"><b>4</b></td>
+<td>Main screen → <b>⋮</b> → <b>Update subscription</b> → tap <code>VOLK-TAYGA</code> → tap <b>▶</b> and allow VPN.</td>
+</tr>
 </table>
 
 </div>
@@ -129,7 +132,7 @@ Open <a href="https://ipleak.net/"><b>ipleak.net</b></a> — it should show <b>U
 <br><br>
 
 <details>
-<summary><b>🔧 Stopped working? Click here</b></summary>
+<summary><b>🔧 Stopped working?</b></summary>
 
 <br>
 
@@ -155,19 +158,3 @@ The server changes its address every few hours. The subscription follows it auto
 <sub>Original project: <a href="https://github.com/X5Coder/IPNET">X5Coder/IPNET</a> · by X5Coder · Tutorials: <a href="https://www.youtube.com/@Kareem-X5Coder">YouTube</a></sub>
 
 </div>
-
-<!--VOLK-ZHIVO-START-->
-## Live connection (auto-updated, copy from here)
-
-- Repo: https://github.com/X5Coder/IPNET
-
-- v2rayNG link (copy/QR, TLS+WebSocket via Cloudflare):
-```
-vmess://eyJ2IjoiMiIsInBzIjoiVk9MSy1UQVlHQSIsImFkZCI6ImxpY2Vuc2VkLXN0b3BzLXdvcmRzLXNjaWVudGlzdC50cnljbG91ZGZsYXJlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6IjllYzhmM2JlLTc1OGUtNDg3Zi1iMDU3LWNiMWUxZGRmNGE5YiIsImFpZCI6IjAiLCJuZXQiOiJ3cyIsInR5cGUiOiJub25lIiwiaG9zdCI6ImxpY2Vuc2VkLXN0b3BzLXdvcmRzLXNjaWVudGlzdC50cnljbG91ZGZsYXJlLmNvbSIsInBhdGgiOiIvdGFpZ2EiLCJ0bHMiOiJ0bHMifQ==
-```
-
-- Subscription (fixed forever, auto-updates):
-```
-https://raw.githubusercontent.com/X5Coder/IPNET/main/zayachiy_sled.txt
-```
-<!--VOLK-ZHIVO-END-->
