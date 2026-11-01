@@ -158,3 +158,19 @@ The server changes its address every few hours. The subscription follows it auto
 <sub>Original project: <a href="https://github.com/X5Coder/IPNET">X5Coder/IPNET</a> · by X5Coder · Tutorials: <a href="https://www.youtube.com/@Kareem-X5Coder">YouTube</a></sub>
 
 </div>
+
+<!--VOLK-ZHIVO-START-->
+## Live connection (auto-updated, copy from here)
+
+- Repo: https://github.com/X5Coder/IPNET
+
+- v2rayNG link (copy/QR, TLS+WebSocket via Cloudflare):
+```
+vmess://eyJ2IjoiMiIsInBzIjoiVk9MSy1UQVlHQSIsImFkZCI6InR3aW5zLW11c2ljYWwtaW50cm9kdWNlcy1kb29ycy50cnljbG91ZGZsYXJlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6IjllYzhmM2JlLTc1OGUtNDg3Zi1iMDU3LWNiMWUxZGRmNGE5YiIsImFpZCI6IjAiLCJuZXQiOiJ3cyIsInR5cGUiOiJub25lIiwiaG9zdCI6InR3aW5zLW11c2ljYWwtaW50cm9kdWNlcy1kb29ycy50cnljbG91ZGZsYXJlLmNvbSIsInBhdGgiOiIvdGFpZ2EiLCJ0bHMiOiJ0bHMifQ==
+```
+
+- Subscription (fixed forever, auto-updates):
+```
+https://raw.githubusercontent.com/X5Coder/IPNET/main/zayachiy_sled.txt
+```
+<!--VOLK-ZHIVO-END-->
