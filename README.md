@@ -87,7 +87,7 @@ No admin rights. No paid servers. Self-healing.</p>
 
 <table>
 <tr>
-<td align="center"><b>1</b></td>
+<td align="center" width="50"><b>1</b></td>
 <td>Install <a href="https://github.com/2dust/v2rayNG/releases/download/2.2.6/v2rayNG_2.2.6_arm64-v8a.apk"><b>v2rayNG</b></a>.</td>
 </tr>
 <tr>
@@ -96,22 +96,27 @@ No admin rights. No paid servers. Self-healing.</p>
 </tr>
 <tr>
 <td align="center"><b>3</b></td>
-<td>Fill in the fields below, then tap <b>✓</b>.</td>
+<td>Fill in:</td>
 </tr>
 <tr>
-<td align="center"><b>4</b></td>
-<td>Main screen → <b>⋮</b> → <b>Update subscription</b> → tap <code>VOLK-TAYGA</code> → tap <b>▶</b> and allow VPN.</td>
-</tr>
-</table>
-
-<br>
-
+<td></td>
+<td>
 <table>
-<tr><th>Field</th><th>Value</th></tr>
 <tr><td><code>remarks</code></td><td><code>IPNET</code></td></tr>
 <tr><td><code>Optional URL</code></td><td><code>{{SUBSCRIPTION_URL}}</code></td></tr>
 <tr><td><code>Enable update</code></td><td>✅ ON</td></tr>
 <tr><td><code>Enable automatic update</code></td><td>✅ ON — interval <code>60</code></td></tr>
+</table>
+</td>
+</tr>
+<tr>
+<td align="center"><b>4</b></td>
+<td>Tap <b>✓</b> to save.</td>
+</tr>
+<tr>
+<td align="center"><b>5</b></td>
+<td>Main screen → <b>⋮</b> → <b>Update subscription</b> → tap <code>VOLK-TAYGA</code> → tap <b>▶</b> and allow VPN.</td>
+</tr>
 </table>
 
 </div>
