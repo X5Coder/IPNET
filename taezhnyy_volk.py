@@ -82,7 +82,9 @@ def shepchit_les(*args, **kwargs):
     """print() that always shows output in terminal.
     If stdout fails, try to redirect to stderr or show error."""
     try:
-        print(*args, **kwargs, flush=True)
+        # Remove flush from kwargs if present to avoid conflict
+        kwargs.pop('flush', None)
+        print(*args, flush=True, **kwargs)
     except OSError:
         try:
             import sys
