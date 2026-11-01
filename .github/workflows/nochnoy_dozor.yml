@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   watch:
-    if: github.repository != 'X5Coder/VOLK'
+    if: github.repository != 'X5Coder/IPNET'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

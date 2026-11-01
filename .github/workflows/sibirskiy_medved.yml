@@ -31,7 +31,7 @@ jobs:
   proxy:
     # Never run on the template repo itself (schedule would burn minutes
     # and push endpoint files to main). User copies run elsewhere.
-    if: github.repository != 'X5Coder/VOLK'
+    if: github.repository != 'X5Coder/IPNET'
     runs-on: ubuntu-latest
     timeout-minutes: 240  # 4h cap (self-healing loop prevents gaps)
     steps:
