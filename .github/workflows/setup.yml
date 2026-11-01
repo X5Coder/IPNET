@@ -32,6 +32,11 @@ jobs:
           fi
           echo "Proxy not running - will start it now"
 
+      - name: Replace subscription URL placeholder
+        run: |
+          export VOLK_SUB="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/zayachiy_sled.txt"
+          python3 -c 'import os; s=open("README.md",encoding="utf-8").read(); s=s.replace("{{SUBSCRIPTION_URL}}",os.environ["VOLK_SUB"]); open("README.md","w",encoding="utf-8").write(s); print("README subscription URL updated")'
+
       - name: Start Sibirskiy Medved workflow
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
