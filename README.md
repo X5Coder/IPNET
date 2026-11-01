@@ -105,7 +105,7 @@ No admin rights. No paid servers. Self-healing.</p>
 <table>
 <tr><th>Field</th><th>Value</th></tr>
 <tr><td><code>remarks</code></td><td><code>IPNET</code></td></tr>
-<tr><td><code>Optional URL</code></td><td><code>https://raw.githubusercontent.com/YOU/YOUR-REPO/main/zayachiy_sled.txt</code><br><sub>replace <code>YOU/YOUR-REPO</code> with your own repo</sub></td></tr>
+<tr><td><code>Optional URL</code></td><td><code>{{SUBSCRIPTION_URL}}</code></td></tr>
 <tr><td><code>Enable update</code></td><td>✅ ON</td></tr>
 <tr><td><code>Enable automatic update</code></td><td>✅ ON — interval <code>60</code></td></tr>
 </table>

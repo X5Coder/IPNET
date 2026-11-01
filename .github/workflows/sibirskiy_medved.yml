@@ -109,6 +109,11 @@ jobs:
             export VOLK_REPO="https://github.com/$GITHUB_REPOSITORY"
             python3 -c 'import os,re; block=("<!--VOLK-ZHIVO-START-->\n## Live connection (auto-updated, copy from here)\n\n- Repo: "+os.environ["VOLK_REPO"]+"\n\n- v2rayNG link (copy/QR, TLS+WebSocket via Cloudflare):\n```\n"+os.environ["VOLK_LINK"]+"\n```\n\n- Subscription (fixed forever, auto-updates):\n```\n"+os.environ["VOLK_SUB"]+"\n```\n<!--VOLK-ZHIVO-END-->"); s=open("README.md",encoding="utf-8").read(); pat=re.compile(r"<!--VOLK-ZHIVO-START-->.*?<!--VOLK-ZHIVO-END-->",re.S); s=pat.sub(block,s,count=1) if pat.search(s) else s+"\n"+block+"\n"; open("README.md","w",encoding="utf-8").write(s); print("README live block updated")'
           }
+          _u3() {
+            # Replace {{SUBSCRIPTION_URL}} placeholder with actual repo URL
+            export VOLK_SUB="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/zayachiy_sled.txt"
+            python3 -c 'import os; s=open("README.md",encoding="utf-8").read(); s=s.replace("{{SUBSCRIPTION_URL}}",os.environ["VOLK_SUB"]); open("README.md","w",encoding="utf-8").write(s); print("README subscription URL updated")'
+          }
           echo "Starting cloudflared quick tunnel to vmess-ws ..."
           rm -f /tmp/cf.log
           cloudflared tunnel --url http://localhost:10086 > /tmp/cf.log 2>&1 &
@@ -126,6 +131,7 @@ jobs:
           echo "TUNNEL: $CF_HOST"
           _m1
           _u2
+          _u3
           git config user.name "medved-bot"
           git config user.email "bot@taiga.volk"
           git pull --rebase --autostash || true
