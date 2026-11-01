@@ -44,7 +44,7 @@ No admin rights. No paid servers. Self-healing.</p>
 </tr>
 <tr>
 <td align="center"><b>3</b></td>
-<td>Start the <b>Sibirskiy Medved</b> workflow, exactly like in the picture below 👇</td>
+<td>Start the <b>Setup (Auto-start after Actions enabled)</b> workflow, exactly like in the picture below 👇</td>
 </tr>
 </table>
 
