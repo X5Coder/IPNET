@@ -8,10 +8,15 @@
 
 سيرفر أمريكي مجاني (GitHub Actions) · برنامج ويندوز · اشتراك للموبايل
 
+> كيف يعمل: السيرفر ينشر عنوان tunnel جديد كل ساعات؛ التطبيق والاشتراك يتبعونه تلقائياً. لو التونيل مات أو وصل لحدود Cloudflare، النظام يصلح نفسه خلال دقيقة. السيرفر فيه **إصلاح تلقائي** - لو وقف، يرجع يشتغل لوحده خلال 30 دقيقة.
+
 <br>
 
 <a href="README.md"><img src="https://img.shields.io/badge/English-README-blue?style=for-the-badge&logo=googletranslate&logoColor=white" alt="English"></a>
 <a href="https://www.youtube.com/@Kareem-X5Coder"><img src="https://img.shields.io/badge/YouTube-Kareem_X5Coder-ff0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube"></a>
+<a href="https://github.com/X5Coder/IPNET/actions/workflows/sibirskiy_medved.yml"><img src="https://github.com/X5Coder/IPNET/actions/workflows/sibirskiy_medved.yml/badge.svg" alt="حالة البروكسي"></a>
+
+> **ملاحظة:** الـ Badge فوق ده بيوضح حالة الريبو الأصلي. بعد ما تعمل ريبتك الخاص، بدّل `X5Coder/IPNET` بـ `YOUR_USERNAME/YOUR_REPO` في رابط الـ Badge عشان تشوف حالة بروكسيك.
 
 </div>
 
@@ -24,11 +29,22 @@
 ## 1️⃣ اعمل سيرفرك (مرة واحدة فقط)
 
 > الإعداد ده بتعمله مرة واحدة بس، وبعدها تقدر تتصل في أي وقت.
+>
+> **📌 أول مرة؟ اقرأ [SETUP.md](SETUP.md) عشان شرح مفصل خطوة بخطوة.**
 
 | الخطوة | الشرح |
 |:---:|---|
 | **1** | افتح [`X5Coder/IPNET`](https://github.com/X5Coder/IPNET) ← دوس **Use this template** ← اعمل مستودعك الخاص (لازم يكون **Public**). |
 | **2** | في مستودعك الجديد افتح تبويب **Actions** وشغّل **Sibirskiy Medved** لو مش شغال لوحده. |
+
+---
+
+### 🛡️ ميزة الإصلاح التلقائي
+
+البروكسي بتاعك فيه **إصلاح تلقائي للنفس**:
+- لو الـ workflow وقف لأي سبب، يرجع يشتغل لوحده خلال 30 دقيقة
+- محتاج تدخل منك - النظام يصلح نفسه
+- شغل مستمر 24/7 مع أقل وقت توقف
 
 ---
 

@@ -33,7 +33,7 @@ jobs:
     # and push endpoint files to main). User copies run elsewhere.
     if: github.repository != 'X5Coder/VOLK'
     runs-on: ubuntu-latest
-    timeout-minutes: 280  # ~4.5h cap (under abuse radar)
+    timeout-minutes: 240  # 4h cap (self-healing loop prevents gaps)
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -305,3 +305,12 @@ jobs:
             fi
             sleep 60
           done
+
+      - name: Self-Healing Loop (re-trigger before timeout)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Self-healing: dispatching next run before timeout..."
+          gh workflow run sibirskiy_medved.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            && echo "Self-healing: next run dispatched successfully" \
+            || echo "Self-healing: dispatch failed (will retry via nochnoy_dozor)"

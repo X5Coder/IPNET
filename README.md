@@ -8,12 +8,15 @@
 
 Free US server (GitHub Actions + Cloudflare tunnel) · Windows app, no admin needed · Phone subscription
 
-> How it works: your server publishes a fresh random tunnel address every few hours; the app and the phone subscription follow it automatically. If a tunnel dies or hits Cloudflare's request cap, both sides heal themselves within a minute.
+> How it works: your server publishes a fresh random tunnel address every few hours; the app and the phone subscription follow it automatically. If a tunnel dies or hits Cloudflare's request cap, both sides heal themselves within a minute. The server includes **auto-healing** - if it stops, it restarts automatically within 30 minutes.
 
 <br>
 
 <a href="README.ar.md"><img src="https://img.shields.io/badge/🇸🇦_Arabic-2ea44f?style=for-the-badge&logo=googletranslate&logoColor=white" alt="Arabic"></a>
 <a href="https://www.youtube.com/@Kareem-X5Coder"><img src="https://img.shields.io/badge/YouTube-Kareem_X5Coder-ff0000?style=for-the-badge&logo=youtube&logoColor=white" alt="YouTube"></a>
+<a href="https://github.com/X5Coder/IPNET/actions/workflows/sibirskiy_medved.yml"><img src="https://github.com/X5Coder/IPNET/actions/workflows/sibirskiy_medved.yml/badge.svg" alt="Proxy Status"></a>
+
+> **Note:** The badge above shows the status of the original repo. After creating your own repo, replace `X5Coder/IPNET` with your `YOUR_USERNAME/YOUR_REPO` in the badge link to see your proxy's status.
 
 </div>
 
@@ -24,11 +27,22 @@ Free US server (GitHub Actions + Cloudflare tunnel) · Windows app, no admin nee
 ## 1️⃣ Create Your Server (one-time setup)
 
 > This setup is done once — after that, you're ready to connect anytime.
+>
+> **📌 First time? Read [SETUP.md](SETUP.md) for detailed step-by-step instructions.**
 
 | Step | What to do |
 |:---:|---|
 | **1** | Open [`X5Coder/IPNET`](https://github.com/X5Coder/IPNET) → click **Use this template** → create your own repo (must be **Public**). |
 | **2** | In your new repo, open the **Actions** tab and run the **Sibirskiy Medved** workflow if it isn't already running. |
+
+---
+
+### 🛡️ Auto-Healing Feature
+
+Your proxy includes **automatic self-healing**:
+- If the workflow stops for any reason, it restarts automatically within 30 minutes
+- No manual intervention needed - the system recovers itself
+- Continuous 24/7 operation with minimal downtime
 
 ---
 
