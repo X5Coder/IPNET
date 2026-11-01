@@ -17,6 +17,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Check if proxy is already running
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
