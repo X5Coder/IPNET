@@ -2,19 +2,6 @@ name: Sibirskiy Medved (dozor taygi)
 
 on:
   workflow_dispatch:
-  schedule:
-    # Every 6h a new generation starts: it verifies + publishes its own
-    # tunnel first, then retires the older run (overlapping handover,
-    # no gap). Each generation gets a fresh random trycloudflare URL;
-    # clients follow it automatically within a minute.
-    - cron: '17 */6 * * *'
-  push:
-    # ZIP-manual setup: starts right after upload. Bot commits (*.txt,
-    # *.md) never match these code paths, so no self-trigger loop.
-    paths:
-      - "severnyy_medved.py"
-      - "matryoshka_dvigatel.json"
-      - ".github/workflows/sibirskiy_medved.yml"
 
 permissions:
   contents: write
@@ -120,7 +107,6 @@ jobs:
           echo "TUNNEL: $CF_HOST"
           _m1
           _u2
-          _u3
           git config user.name "medved-bot"
           git config user.email "bot@taiga.volk"
           git pull --rebase --autostash || true

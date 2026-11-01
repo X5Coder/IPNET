@@ -5,13 +5,6 @@ name: Setup (Auto-start after Actions enabled)
 # Runs on first push after Actions are enabled.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'severnyy_medved.py'
-      - 'matryoshka_dvigatel.json'
-      - '.github/workflows/setup.yml'
-      - 'README.md'
   workflow_dispatch:
 
 permissions:
