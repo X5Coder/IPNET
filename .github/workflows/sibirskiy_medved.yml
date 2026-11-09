@@ -7,26 +7,28 @@ permissions:
   contents: write
   actions: write  # retire step cancels the older run after handover
 
-# Generational handover (NOT cancel-on-start): the new run verifies +
-# publishes its own tunnel first, then retires the older run. Killing
-# the old run at startup would open a setup gap every cycle.
-concurrency:
-  group: sibirskiy-medved
-  cancel-in-progress: false
+# Generational handover (OVERLAPPING, not cancel-on-start): the job is
+# hard-capped at 4h10m (timeout-minutes). At 3h55m job-elapsed the running
+# generation dispatches its successor. The successor installs, verifies
+# end-to-end and republishes its own tunnel (~5 min), then cancels the
+# older generation at its first check - the subscription files flip to
+# the successor's endpoint within seconds. Users never notice. Nothing
+# here needs manual action; timeout-minutes is only the final backstop.
 
 jobs:
   proxy:
-    # Never run on the template repo itself (schedule would burn minutes
+    # Never run on the template repo itself (would burn minutes
     # and push endpoint files to main). User copies run elsewhere.
     if: github.repository != 'X5Coder/IPNET'
     runs-on: ubuntu-latest
-    timeout-minutes: 240  # 4h cap (self-healing loop prevents gaps)
+    timeout-minutes: 250  # 4h10m hard stop; successor retires this run far earlier
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Start local HTTP proxy (self-test + manual use inside runner)
         run: |
+          date +%s > /tmp/job_start   # job-elapsed clock for handover dispatch
           echo "Starting proxy on 0.0.0.0:8080 ..."
           PORT=8080 PROXY_USER=taezhnyyvolk PROXY_PASS='Volk_Taiga_2026_Krepkiy!' python3 severnyy_medved.py > /tmp/proxy.log 2>&1 &
           echo $! > /tmp/proxy.pid
@@ -149,6 +151,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          OWN_HOST="$(cat medvezhiy_sled.txt 2>/dev/null | tr -d ' \r\n')"
+          _t0="$(cat /tmp/job_start 2>/dev/null || date +%s)"
+          _dispatch_at=14100  # 3h55m job-elapsed: dispatch the successor generation
+          echo "own tunnel host: ${OWN_HOST:-none} | job start epoch: $_t0"
           _m0() {
             CF_HOST="$(cat medvezhiy_sled.txt 2>/dev/null | tr -d ' \r\n')"
             [ -z "$CF_HOST" ] && return 0
@@ -160,15 +166,19 @@ jobs:
             printf '%s' "$LINK" | base64 -w0 > zayachiy_sled.txt
           }
           _p1() {
-            # $1 = reason label (handover | heal)
-            _m0
+            # $1 = reason label (handover | heal), $2 = "reassert" to win over
+            # a stale hostname pushed by the predecessor during handover
             git config user.name "medved-bot" || true
             git config user.email "bot@taiga.volk" || true
             git pull --rebase --autostash || true
+            if [ "$2" = "reassert" ] && [ -n "$OWN_HOST" ]; then
+              printf '%s' "$OWN_HOST" > medvezhiy_sled.txt
+            fi
+            _m0
             git rm --quiet bore_url.txt ss_url.txt ss_ygg_url.txt proxy_urls.txt 2>/dev/null || true
             git rm -r --quiet ygg-node 2>/dev/null || true
             git add medvezhiy_sled.txt volchiy_sled.txt zayachiy_sled.txt README.md || true
-            git commit -m "cloudflare ${1:-update} [$(cat medvezhiy_sled.txt 2>/dev/null)]" || true
+            git commit -m "cloudflare ${1:-update} [${OWN_HOST:-unknown}]" || true
             git push || true
           }
           # Monitor: persistent vmess-over-cloudflared on 1081,
@@ -224,8 +234,21 @@ jobs:
           }
           _s2 "$(cat medvezhiy_sled.txt 2>/dev/null | tr -d ' \r\n')"
           fail_cf=0; _trouble=0
-          for i in $(seq 1 260); do
-            echo "[$i/260] $(date -u) - alive"
+          for i in $(seq 1 400); do
+            echo "[$i] $(date -u) - alive"
+            # --- generational handover: dispatch successor at 3h55m job-elapsed ---
+            if [ ! -f /tmp/successor_dispatched ]; then
+              _now=$(date +%s)
+              if [ $((_now - _t0)) -ge "$_dispatch_at" ]; then
+                echo "3h55m elapsed - dispatching successor generation ..."
+                if gh workflow run sibirskiy_medved.yml --repo "$GITHUB_REPOSITORY" --ref main; then
+                  date > /tmp/successor_dispatched
+                  echo "successor dispatched - it will cancel this run once verified"
+                else
+                  echo "successor dispatch failed - will retry next tick"
+                fi
+              fi
+            fi
             # --- generational handover (first iteration only) ---
             if [ "$i" -eq 1 ]; then
               for _rid in $(gh run list --repo "$GITHUB_REPOSITORY" \
@@ -236,7 +259,7 @@ jobs:
                   gh run cancel "$_rid" --repo "$GITHUB_REPOSITORY" || true
                 fi
               done
-              _p1 "handover"
+              _p1 "handover" reassert
               echo "HANDOVER: predecessors retired, own endpoint republished."
             fi
             CF_HOST="$(cat medvezhiy_sled.txt 2>/dev/null | tr -d ' \r\n')"
@@ -291,7 +314,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Self-healing: dispatching next run before timeout..."
+          if [ -f /tmp/successor_dispatched ]; then
+            echo "successor already dispatched during the 3h55m handover tick - nothing to do"
+            exit 0
+          fi
+          echo "fallback: monitor loop ended without a successor - dispatching now ..."
           gh workflow run sibirskiy_medved.yml --repo "$GITHUB_REPOSITORY" --ref main \
-            && echo "Self-healing: next run dispatched successfully" \
-            || echo "Self-healing: dispatch failed (will retry via nochnoy_dozor)"
+            && echo "fallback dispatch OK" \
+            || echo "fallback dispatch failed (nochnoy_dozor watchdog will retry)"

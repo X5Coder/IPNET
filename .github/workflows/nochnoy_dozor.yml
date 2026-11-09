@@ -1,11 +1,14 @@
 name: Nochnoy Dozor (storozh taygi)
 
-# Safety net: if the proxy run dies early, cron alone would leave the
-# proxy dead until the next 6h tick. Checks every 30 min and starts a
-# fresh run when none is active. Concurrency group = only one lives.
+# Safety net: if the proxy run dies early and the generational handover
+# dispatch failed, cron would leave the proxy dead. Checks every 30 min
+# and starts a fresh run when none is active. A generation retires its
+# predecessor itself once verified, so newest always wins.
 # Improved with retry logic and enhanced logging.
 
 on:
+  schedule:
+    - cron: '23,53 * * * *'  # check every 30 minutes (xx:23 and xx:53)
   workflow_dispatch:
 
 permissions:
@@ -23,9 +26,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "=== Nochnoy Dozor Watch Start ==="
-          echo "Checking for active sibirskiy_medved runs..."
-          N=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow sibirskiy_medved.yml \
+          echo "Checking for active sibirskiy_medved runs (in_progress/queued/waiting)..."
+          N1=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow sibirskiy_medved.yml \
             --status in_progress --limit 1 --json databaseId -q 'length')
+          N2=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow sibirskiy_medved.yml \
+            --status queued --limit 1 --json databaseId -q 'length')
+          N3=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow sibirskiy_medved.yml \
+            --status waiting --limit 1 --json databaseId -q 'length')
+          N=$(( ${N1:-0} + ${N2:-0} + ${N3:-0} ))
           if [ "${N:-0}" -ge 1 ]; then
             echo "✓ Proxy run ACTIVE (${N} run(s) in progress) - nothing to do."
             exit 0
