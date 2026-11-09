@@ -71,6 +71,22 @@ jobs:
 
       - name: Taezhnyy osmotr (sliyaniye reki)
         run: |
+          _push() {
+            # Push published files; one rebase+retry. Never kills the job -
+            # a loud warning is better than a dead proxy. README/links
+            # converge on the next handover publish.
+            git push && return 0
+            echo "push failed - rebasing and retrying once ..."
+            git rebase --abort 2>/dev/null || true
+            git pull --rebase --autostash || { echo "WARNING: rebase failed - endpoint NOT published"; echo "### ⚠️ publish failed - README link may be stale" >> $GITHUB_STEP_SUMMARY; return 1; }
+            git add medvezhiy_sled.txt volchiy_sled.txt zayachiy_sled.txt README.md || { echo "WARNING: nothing to add"; return 1; }
+            if git diff --cached --quiet; then
+              echo "nothing to commit after rebase - remote already up to date"
+              return 0
+            fi
+            git commit -m "publish cloudflared ${CF_HOST:-tunnel} (retry)" || return 1
+            git push || { echo "WARNING: push retry failed - endpoint NOT published"; echo "### ⚠️ publish failed - README link may be stale" >> $GITHUB_STEP_SUMMARY; return 1; }
+          }
           _m1() {
             # Fixed URLs, evergreen content: volchiy_sled.txt (plain vmess://
             # link) and zayachiy_sled.txt (base64 subscription for v2rayNG/NekoBox
@@ -90,7 +106,17 @@ jobs:
           _u2() {
             # Replace {{SUBSCRIPTION_URL}} placeholder with actual repo URL
             export VOLK_SUB="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/zayachiy_sled.txt"
-            python3 -c 'import os; s=open("README.md",encoding="utf-8").read(); s=s.replace("{{SUBSCRIPTION_URL}}",os.environ["VOLK_SUB"]); open("README.md","w",encoding="utf-8").write(s); print("README subscription URL updated")'
+            if ! grep -q '{{SUBSCRIPTION_URL}}' README.md; then
+              echo "README subscription URL already set - nothing to replace"
+              return 0
+            fi
+            python3 -c 'import os; s=open("README.md",encoding="utf-8").read(); s=s.replace("{{SUBSCRIPTION_URL}}",os.environ["VOLK_SUB"]); open("README.md","w",encoding="utf-8").write(s)'
+            if grep -q '{{SUBSCRIPTION_URL}}' README.md; then
+              echo "FATAL: README still has the placeholder after replace"
+              return 1
+            fi
+            echo "README subscription URL set to: $VOLK_SUB"
+            echo "### README subscription: $VOLK_SUB" >> $GITHUB_STEP_SUMMARY
           }
           echo "Starting cloudflared quick tunnel to vmess-ws ..."
           rm -f /tmp/cf.log
@@ -117,7 +143,7 @@ jobs:
           git rm -r --quiet ygg-node 2>/dev/null || true
           git add medvezhiy_sled.txt volchiy_sled.txt zayachiy_sled.txt README.md || true
           git commit -m "publish cloudflared $CF_HOST" || true
-          git push || true
+          _push || true
           echo "### CLOUDFLARE: $CF_HOST" >> $GITHUB_STEP_SUMMARY
 
       - name: Taezhnaya proverka (sled volka)
@@ -155,6 +181,20 @@ jobs:
           _t0="$(cat /tmp/job_start 2>/dev/null || date +%s)"
           _dispatch_at=14100  # 3h55m job-elapsed: dispatch the successor generation
           echo "own tunnel host: ${OWN_HOST:-none} | job start epoch: $_t0"
+          _push_change() {
+            # Push published files; one rebase+retry. Never kills the monitor.
+            git push && return 0
+            echo "push failed ($1) - rebasing and retrying once ..."
+            git rebase --abort 2>/dev/null || true
+            git pull --rebase --autostash || { echo "WARNING: rebase failed ($1) - NOT published"; echo "### ⚠️ publish failed ($1) - README link may be stale" >> $GITHUB_STEP_SUMMARY; return 1; }
+            git add medvezhiy_sled.txt volchiy_sled.txt zayachiy_sled.txt README.md || return 1
+            if git diff --cached --quiet; then
+              echo "nothing to commit after rebase - remote already up to date"
+              return 0
+            fi
+            git commit -m "$1 [${OWN_HOST:-unknown}] (retry)" || return 1
+            git push || { echo "WARNING: push retry failed ($1) - NOT published"; echo "### ⚠️ publish failed ($1) - README link may be stale" >> $GITHUB_STEP_SUMMARY; return 1; }
+          }
           _m0() {
             CF_HOST="$(cat medvezhiy_sled.txt 2>/dev/null | tr -d ' \r\n')"
             [ -z "$CF_HOST" ] && return 0
@@ -179,7 +219,7 @@ jobs:
             git rm -r --quiet ygg-node 2>/dev/null || true
             git add medvezhiy_sled.txt volchiy_sled.txt zayachiy_sled.txt README.md || true
             git commit -m "cloudflare ${1:-update} [${OWN_HOST:-unknown}]" || true
-            git push || true
+            _push_change "cloudflare ${1:-update}" || true
           }
           # Monitor: persistent vmess-over-cloudflared on 1081,
           # rebuilt whenever the published hostname changes. Real

@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write  # fixes + pushes the README subscription link
   actions: write
 
 jobs:
@@ -20,7 +20,34 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Fix subscription URL in README (commit + push)
+        run: |
+          export VOLK_SUB="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/zayachiy_sled.txt"
+          if ! grep -q '{{SUBSCRIPTION_URL}}' README.md; then
+            echo "OK: README already has the subscription URL - nothing to fix"
+            exit 0
+          fi
+          echo "README still has {{SUBSCRIPTION_URL}} - replacing with:"
+          echo "  $VOLK_SUB"
+          python3 -c 'import os; s=open("README.md",encoding="utf-8").read(); s=s.replace("{{SUBSCRIPTION_URL}}",os.environ["VOLK_SUB"]); open("README.md","w",encoding="utf-8").write(s)'
+          if grep -q '{{SUBSCRIPTION_URL}}' README.md; then
+            echo "FATAL: placeholder still present after replace"
+            exit 1
+          fi
+          git config user.name "medved-bot"
+          git config user.email "bot@taiga.volk"
+          git add README.md
+          git commit -m "setup: fill subscription URL in README" || { echo "nothing to commit"; exit 0; }
+          if ! git push; then
+            echo "push rejected - rebasing and retrying once ..."
+            git pull --rebase --autostash || exit 1
+            git push || { echo "FATAL: README fix could not be pushed"; exit 1; }
+          fi
+          echo "OK: README subscription URL fixed and pushed"
+          echo "### README subscription: $VOLK_SUB" >> $GITHUB_STEP_SUMMARY
+
       - name: Check if proxy is already running
+        id: check
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -31,16 +58,14 @@ jobs:
           if [ "${N:-0}" -ge 1 ]; then
             echo "✓ Proxy is already running (${N} active run(s))"
             echo "Setup complete - no action needed"
+            echo "skip=true" >> $GITHUB_OUTPUT
             exit 0
           fi
           echo "Proxy not running - will start it now"
-
-      - name: Replace subscription URL placeholder
-        run: |
-          export VOLK_SUB="https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/zayachiy_sled.txt"
-          python3 -c 'import os; s=open("README.md",encoding="utf-8").read(); s=s.replace("{{SUBSCRIPTION_URL}}",os.environ["VOLK_SUB"]); open("README.md","w",encoding="utf-8").write(s); print("README subscription URL updated")'
+          echo "skip=false" >> $GITHUB_OUTPUT
 
       - name: Start Sibirskiy Medved workflow
+        if: steps.check.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -64,7 +89,9 @@ jobs:
         run: |
           echo "## 🎉 IPNET Setup Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "The main proxy workflow (Sibirskiy Medved) has been started automatically." >> $GITHUB_STEP_SUMMARY
+          echo "The main proxy workflow (Sibirskiy Medved) is running (it was already running, or setup just started it)." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "README subscription link: (see the 'Fix subscription URL in README' step)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
           echo "1. Wait 5-10 minutes for the proxy to build" >> $GITHUB_STEP_SUMMARY
