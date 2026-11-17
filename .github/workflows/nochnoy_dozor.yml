@@ -1,19 +1,31 @@
 name: Nochnoy Dozor (storozh taygi)
 
-# Safety net: if the proxy run dies early and the generational handover
-# dispatch failed, cron would leave the proxy dead. Checks every 30 min
-# and starts a fresh run when none is active. A generation retires its
-# predecessor itself once verified, so newest always wins.
-# Improved with retry logic and enhanced logging.
+# Safety net. Layered restart for Sibirskiy Medved:
+#   1. workflow_run fires within minutes when a USER-triggered medved run
+#      completes (GITHUB_TOKEN-dispatched parents do NOT emit downstream
+#      events, verified 2026-11-17) - covers manual re-runs.
+#   2. cron backstop every 30 min catches any death the in-job 3h55m
+#      handover missed (template repos skip themselves instantly).
+#   3. The proxy chain itself rides on the in-job handover + self-healing
+#      tail step (see sibirskiy_medved.yml). This workflow only re-arms
+#      the chain when it has fully broken.
 
 on:
+  workflow_run:
+    workflows: ["Sibirskiy Medved (dozor taygi)"]
+    types: [completed]
   schedule:
-    - cron: '23,53 * * * *'  # check every 30 minutes (xx:23 and xx:53)
+    - cron: '23,53 * * * *'  # backstop only
   workflow_dispatch:
 
 permissions:
   contents: read
   actions: write
+
+# Serialise backstop firings with workflow_run firings - no double dispatch.
+concurrency:
+  group: nochnoy-dozor
+  cancel-in-progress: false
 
 jobs:
   watch:
@@ -24,8 +36,11 @@ jobs:
       - name: Restart proxy if no run is active
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          C0: ${{ github.event_name }}
+          C1: ${{ github.event.workflow_run.conclusion }}
         run: |
           echo "=== Nochnoy Dozor Watch Start ==="
+          echo "trigger: $C0 | parent conclusion: ${C1:-n/a}"
           echo "Checking for active sibirskiy_medved runs (in_progress/queued/waiting)..."
           N1=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow sibirskiy_medved.yml \
             --status in_progress --limit 1 --json databaseId -q 'length')
@@ -53,6 +68,6 @@ jobs:
               fi
             fi
           done
-          echo "✗ All dispatch attempts failed - will retry next scheduled tick (30 min)"
+          echo "✗ All dispatch attempts failed - will retry on next event/tick"
           echo "Possible causes: workflow disabled, repo not public, or GitHub API rate limit"
           exit 1

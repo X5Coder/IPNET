@@ -12,8 +12,10 @@ permissions:
 # generation dispatches its successor. The successor installs, verifies
 # end-to-end and republishes its own tunnel (~5 min), then cancels the
 # older generation at its first check - the subscription files flip to
-# the successor's endpoint within seconds. Users never notice. Nothing
-# here needs manual action; timeout-minutes is only the final backstop.
+# the successor's endpoint within seconds. Users never notice. If the
+# dispatch inside this job never happened (crash/timeout), Nochnoy Dozor
+# fires on this run's completion (workflow_run event) and starts the
+# next generation within minutes. timeout-minutes is only the backstop.
 
 jobs:
   proxy:
@@ -351,6 +353,9 @@ jobs:
           done
 
       - name: Self-Healing Loop (re-trigger before timeout)
+        # if: always() so this dispatches even if the monitor step failed
+        # or the job was timed out earlier than expected.
+        if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
